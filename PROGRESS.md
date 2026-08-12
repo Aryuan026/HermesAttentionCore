@@ -9,3 +9,5 @@
 - Added clean install/upgrade behavior and normal Hermes Cron Agent mode.
 - Added positive and negative tests for channel, capability, adapter, migration,
   lifecycle, privacy, and installer boundaries.
+- Added opt-in native Cron session binding so a heartbeat delivery can remain
+  causally available to replies without coupling Attention to any channel.

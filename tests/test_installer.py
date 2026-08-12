@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -99,6 +100,54 @@ class InstallerTest(unittest.TestCase):
             self.assertIn("--agent", args)
             self.assertNotIn("--no-agent", args)
             self.assertEqual(args.count("--skill attention-steward"), 1)
+
+    def test_cron_can_attach_delivery_to_native_foreground_session(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_bin = root / "fake-bin"
+            fake_bin.mkdir()
+            hermes = fake_bin / "hermes"
+            hermes.write_text(
+                "#!/bin/sh\n"
+                "if [ \"$1 $2\" = \"cron list\" ]; then\n"
+                "  printf '  4336e0f611c8 [active]\\n    Name:      hermes-attention-heartbeat\\n'\n"
+                "fi\n",
+                encoding="utf-8",
+            )
+            hermes.chmod(0o755)
+            agent = root / ".hermes" / "hermes-agent"
+            cron = agent / "cron"
+            cron.mkdir(parents=True)
+            (cron / "__init__.py").write_text("", encoding="utf-8")
+            (cron / "jobs.py").write_text(
+                "import json, os\n"
+                "from pathlib import Path\n"
+                "def update_job(job_id, updates):\n"
+                "    Path(os.environ['BIND_LOG']).write_text(json.dumps({'job_id': job_id, 'updates': updates}))\n"
+                "    return {'id': job_id, **updates}\n",
+                encoding="utf-8",
+            )
+            venv_bin = agent / "venv" / "bin"
+            venv_bin.mkdir(parents=True)
+            os.symlink(sys.executable, venv_bin / "python")
+            bind_log = root / "bind.json"
+            environment = dict(os.environ)
+            environment["PATH"] = f"{fake_bin}:{environment.get('PATH', '')}"
+            environment["BIND_LOG"] = str(bind_log)
+            result = self.install(
+                root,
+                "--install-cron", "--deliver", "qqbot",
+                "--attach-to-session",
+                "--origin-platform", "qqbot",
+                "--origin-chat-id", "private-chat",
+                env=environment,
+            )
+            self.assertIn("session_continuity=attached", result.stdout)
+            written = json.loads(bind_log.read_text(encoding="utf-8"))
+            self.assertEqual(written["job_id"], "4336e0f611c8")
+            self.assertTrue(written["updates"]["attach_to_session"])
+            self.assertEqual(written["updates"]["origin"]["chat_id"], "private-chat")
+            self.assertIsNone(written["updates"]["origin"]["user_id"])
 
 
 if __name__ == "__main__":

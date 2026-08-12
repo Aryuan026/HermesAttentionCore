@@ -154,6 +154,14 @@ context. The Agent makes a fresh decision, acts if useful, then writes fresh
 speech—or deliberately stays silent. Stored reminder text, provider text,
 prior replies, and script stdout never become an alarm-style final message.
 
+For a conversational heartbeat, the deployment may opt into Hermes's native
+`attach_to_session` behavior and bind the job to one channel origin. After a
+successful delivery, Hermes mirrors that fresh result into the matching native
+foreground session, so the next human reply retains causal context. This is a
+Cron/session configuration seam—not an Attention owner, Inbox event, transcript
+adapter, or project delivery implementation. Changing channels only requires
+rebinding the native origin.
+
 ## 8. Migration and forbidden regressions
 
 Upgrade disables the legacy `attention-transcript` hook and converts the

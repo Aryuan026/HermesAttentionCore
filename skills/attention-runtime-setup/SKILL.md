@@ -20,6 +20,19 @@ runtime.
    python3 scripts/install_hermes.py --install-cron --deliver <platform>
    ```
 
+   If people will reply to heartbeat messages, bind the job to that channel's
+   native foreground session:
+
+   ```bash
+   python3 scripts/install_hermes.py \
+     --install-cron --deliver <platform> \
+     --attach-to-session \
+     --origin-platform <platform> \
+     --origin-chat-id <native-chat-id>
+   ```
+
+   Use channel-native IDs from the private deployment; never commit them.
+
 Re-running updates the same heartbeat rather than creating another. The
 installer refreshes only generic Attention Skills and moves the legacy
 conversation-transcript hook out of active hooks.
@@ -32,7 +45,8 @@ conversation-transcript hook out of active hooks.
 - New abilities: register them through Hermes's normal MCP, tool, or plugin
   setup. Do not put tool schemas or permissions in Attention.
 - New conversation channel: connect it to Hermes normally. No Inbox adapter is
-  required.
+  required. Rebind the heartbeat origin only when its messages should be
+  continuable in that new channel's foreground session.
 - New domain guidance: add a narrow Skill only when tool descriptions do not
   explain enough; never attach every domain Skill to every heartbeat.
 
@@ -49,3 +63,5 @@ conversation-transcript hook out of active hooks.
 - Native tools remain available with every optional adapter removed.
 - An adapter failure is visible but does not block another due owner.
 - A reported action has a canonical tool receipt and a settled focus.
+- A reply to a conversational heartbeat sees the mirrored delivery in the
+  native channel session; no channel transcript was copied into Inbox.

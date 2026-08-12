@@ -111,6 +111,27 @@ cd HermesAttentionCore
 python3 scripts/install_hermes.py --install-cron --deliver <platform>
 ```
 
+If people will reply to heartbeat messages, keep those deliveries in the
+target native conversation:
+
+```bash
+python3 scripts/install_hermes.py \
+  --install-cron --deliver <platform> \
+  --attach-to-session \
+  --origin-platform <platform> \
+  --origin-chat-id <native-chat-id>
+```
+
+Hermes mirrors each successful delivery into that foreground session, so a
+follow-up such as “what arrived?” can refer to the event and action that just
+happened. Changing QQ to mobile, Feishu, or another channel does not change the
+Attention architecture; only rebind this native Cron origin when continuity is
+wanted in the new mouth.
+
+For a per-user-isolated group session, also pass the channel-native
+`--origin-user-id`; add `--origin-thread-id` when the conversation is scoped to
+a topic or thread.
+
 The installer owns only the generic runtime package and three generic Skills.
 It does not enable, disable, enumerate, or copy native capabilities. Re-running
 it removes retired files from those owned trees without deleting independent

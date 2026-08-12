@@ -46,6 +46,12 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--deliver", help="Hermes delivery platform for this installation")
     root.add_argument("--schedule", default="*/15 * * * *")
     root.add_argument("--workdir", type=Path, default=Path.home())
+    root.add_argument("--attach-to-session", action="store_true")
+    root.add_argument("--origin-platform")
+    root.add_argument("--origin-chat-id")
+    root.add_argument("--origin-chat-name")
+    root.add_argument("--origin-user-id")
+    root.add_argument("--origin-thread-id")
     return root
 
 
@@ -55,6 +61,7 @@ def copy_runtime(source: Path, target: Path) -> None:
     required = [
         source / "src" / "hermes_attention",
         source / "scripts" / "hermes_attention_heartbeat.py",
+        source / "scripts" / "hermes_attention_bind_cron.py",
         *(source / "skills" / name for name in GENERIC_SKILLS),
     ]
     missing = [str(path) for path in required if not path.exists()]
@@ -70,6 +77,10 @@ def copy_runtime(source: Path, target: Path) -> None:
     shutil.copy2(
         source / "scripts" / "hermes_attention_heartbeat.py",
         target / "scripts" / "hermes_attention_heartbeat.py",
+    )
+    shutil.copy2(
+        source / "scripts" / "hermes_attention_bind_cron.py",
+        target / "scripts" / "hermes_attention_bind_cron.py",
     )
     for name in GENERIC_SKILLS:
         replace_tree(source / "skills" / name, target / "skills" / name)
@@ -180,13 +191,21 @@ def initialize_store(hermes_home: Path, *, bin_dir: Path) -> None:
     )
 
 
+def _heartbeat_job_id(listing: str) -> str | None:
+    match = re.search(
+        rf"(?m)^\s*([a-f0-9]+) \[[^\]]+\]\s*\n\s*Name:\s*{re.escape(CRON_NAME)}\s*$",
+        listing,
+    )
+    return match.group(1) if match else None
+
+
 def install_cron(
     hermes_home: Path,
     *,
     deliver: str | None,
     schedule: str,
     workdir: Path,
-) -> str:
+) -> tuple[str, str]:
     if not deliver:
         raise SystemExit("--deliver is required with --install-cron")
     hermes = command_path("hermes")
@@ -213,23 +232,88 @@ def install_cron(
             env=environment,
             check=True,
         )
-        return "created"
-    match = re.search(
-        rf"(?m)^\s*([a-f0-9]+) \[[^\]]+\]\s*\n\s*Name:\s*{re.escape(CRON_NAME)}\s*$",
-        listed.stdout,
-    )
-    if not match:
+        refreshed = subprocess.run(
+            [hermes, "cron", "list"],
+            env=environment,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        job_id = _heartbeat_job_id(refreshed.stdout)
+        if not job_id:
+            raise SystemExit("Could not resolve the newly created heartbeat job ID")
+        return "created", job_id
+    job_id = _heartbeat_job_id(listed.stdout)
+    if not job_id:
         raise SystemExit("Could not resolve the existing heartbeat job ID")
     subprocess.run(
-        [hermes, "cron", "edit", match.group(1), *common],
+        [hermes, "cron", "edit", job_id, *common],
         env=environment,
         check=True,
     )
-    return "updated"
+    return "updated", job_id
+
+
+def bind_cron_session(
+    install_root: Path,
+    hermes_home: Path,
+    *,
+    job_id: str,
+    platform: str,
+    chat_id: str,
+    chat_name: str | None = None,
+    user_id: str | None = None,
+    thread_id: str | None = None,
+) -> None:
+    source_root = hermes_home / "hermes-agent"
+    hermes_python = source_root / "venv" / "bin" / "python"
+    if not source_root.is_dir() or not hermes_python.exists():
+        raise SystemExit(
+            "Hermes source/venv is required for native Cron session binding"
+        )
+    command = [
+        str(hermes_python),
+        str(install_root / "scripts" / "hermes_attention_bind_cron.py"),
+        "--job-id", job_id,
+        "--platform", platform,
+        "--chat-id", chat_id,
+    ]
+    for option, value in (
+        ("--chat-name", chat_name),
+        ("--user-id", user_id),
+        ("--thread-id", thread_id),
+    ):
+        if value:
+            command.extend((option, value))
+    environment = dict(os.environ)
+    environment["HERMES_HOME"] = str(hermes_home)
+    existing_pythonpath = environment.get("PYTHONPATH")
+    environment["PYTHONPATH"] = (
+        str(source_root)
+        if not existing_pythonpath
+        else f"{source_root}{os.pathsep}{existing_pythonpath}"
+    )
+    subprocess.run(command, cwd=source_root, env=environment, check=True)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    origin_values = (
+        args.origin_platform,
+        args.origin_chat_id,
+        args.origin_chat_name,
+        args.origin_user_id,
+        args.origin_thread_id,
+    )
+    if args.attach_to_session:
+        if not args.install_cron:
+            raise SystemExit("--attach-to-session requires --install-cron")
+        if not args.origin_platform or not args.origin_chat_id:
+            raise SystemExit(
+                "--attach-to-session requires --origin-platform and --origin-chat-id"
+            )
+    elif any(origin_values):
+        raise SystemExit("Origin fields require --attach-to-session")
     source_root = args.source_root.expanduser().resolve()
     install_root = args.install_root.expanduser().resolve()
     hermes_home = args.hermes_home.expanduser().resolve()
@@ -239,16 +323,30 @@ def main(argv: list[str] | None = None) -> int:
     install_hermes_assets(install_root, hermes_home)
     initialize_store(hermes_home, bin_dir=bin_dir)
     cron_status = "not requested"
+    continuity_status = "not requested"
     if args.install_cron:
-        cron_status = install_cron(
+        cron_status, job_id = install_cron(
             hermes_home,
             deliver=args.deliver,
             schedule=args.schedule,
             workdir=args.workdir,
         )
+        if args.attach_to_session:
+            bind_cron_session(
+                install_root,
+                hermes_home,
+                job_id=job_id,
+                platform=args.origin_platform,
+                chat_id=args.origin_chat_id,
+                chat_name=args.origin_chat_name,
+                user_id=args.origin_user_id,
+                thread_id=args.origin_thread_id,
+            )
+            continuity_status = "attached"
     print(f"runtime={install_root}")
     print(f"hermes_home={hermes_home}")
     print(f"cron={cron_status}")
+    print(f"session_continuity={continuity_status}")
     return 0
 
 
