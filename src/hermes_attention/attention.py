@@ -6,7 +6,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from .calendar import CalendarStore
 from .continuations import ContinuationStore
-from .db import canonical_json, iso, parse_time, stable_id, utc_now
+from .db import iso, parse_time, stable_id, utc_now
 from .inbox import InboxStore, PRIORITIES
 from .tasks import TaskStore
 
@@ -154,10 +154,11 @@ def _bounded(value: float) -> float:
 
 
 class AttentionCoordinator:
-    """Read-only candidate merger and exact-claim router.
+    """Candidate merger and transaction coordinator over source-owned APIs.
 
-    It knows the four product-owned stores, never provider transports or tool
-    schemas. New external systems enter Inbox without changing scoring.
+    It does not implement source-table SQL. It knows the four product-owned
+    stores, never provider transports or tool schemas. New external systems
+    enter Inbox without changing scoring.
     """
 
     def __init__(
@@ -203,33 +204,60 @@ class AttentionCoordinator:
                 },
                 "eligible_count": 0,
                 "eligible_membership": [],
+                "review_id": stable_id("review", "direct"),
+                "review_limit": max(1, limit),
+                "review_membership": [],
                 "opportunities": [],
                 "weights": WEIGHTS,
             }
 
         ranked = [self._rank(item, current) for provider in self.providers for item in provider.candidates(current)]
         ranked.sort(key=lambda item: (-item["score"], item["event_at"], item["opportunity_id"]))
-        selected = self._diverse(ranked, max(1, limit))
-        membership = [f"{item['opportunity_id']}:{item['source_version']}" for item in ranked]
+        review_limit = max(1, limit)
+        selected = self._diverse(ranked, review_limit)
+        eligible_membership = self._membership(ranked)
+        review_membership = self._membership(selected)
         return {
             "schema": SCHEMA,
-            "set_id": stable_id("aos", *membership) if membership else stable_id("aos", "empty"),
+            "set_id": self._membership_id("aos", eligible_membership),
+            "review_id": self._membership_id("review", review_membership),
             "built_at": iso(current),
             "direct_trigger": None,
             "eligible_count": len(ranked),
-            "eligible_membership": [
-                {
-                    "opportunity_id": item["opportunity_id"],
-                    "source_kind": item["source_kind"],
-                    "source_id": item["source_id"],
-                    "source_version": item["source_version"],
-                }
-                for item in ranked
-            ],
+            "eligible_membership": eligible_membership,
             "prompt_count": len(selected),
+            "review_limit": review_limit,
+            "review_membership": review_membership,
             "weights": WEIGHTS,
             "opportunities": selected,
         }
+
+    @staticmethod
+    def _membership(items: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
+        return sorted(
+            (
+                {
+                    "opportunity_id": str(item["opportunity_id"]),
+                    "source_kind": str(item["source_kind"]),
+                    "source_id": str(item["source_id"]),
+                    "source_version": str(item["source_version"]),
+                }
+                for item in items
+            ),
+            key=lambda member: (
+                member["source_kind"],
+                member["source_id"],
+                member["source_version"],
+            ),
+        )
+
+    @staticmethod
+    def _membership_id(prefix: str, members: Sequence[Mapping[str, str]]) -> str:
+        identity = [
+            f"{member['source_kind']}:{member['source_id']}:{member['source_version']}"
+            for member in members
+        ]
+        return stable_id(prefix, *(identity or ["empty"]))
 
     def _rank(self, candidate: Candidate, now: datetime) -> dict[str, Any]:
         age_hours = max(0.0, (now - candidate.event_at).total_seconds() / 3600)
@@ -308,22 +336,38 @@ class AttentionCoordinator:
             return {"settled": False, "reason": "unknown_source_owner"}
         return owner.settle(claim_token, outcome, result=result, now=now)
 
-    def quiet_set(
+    def validate_claim(
         self,
-        set_id: str,
+        source_kind: str,
+        claim_token: str,
         *,
         now: datetime | None = None,
     ) -> dict[str, Any]:
-        """Atomically mark one exact eligible set reviewed without acting."""
+        owner = self._owners.get(source_kind)
+        if owner is None:
+            return {"valid": False, "reason": "unknown_source_owner"}
+        return owner.validate_claim(claim_token, now=now)
+
+    def quiet_set(
+        self,
+        set_id: str,
+        review_id: str,
+        *,
+        review_limit: int = 12,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Atomically close only the exact bounded subset the Agent reviewed."""
         current = now or utc_now()
-        built = self.build(now=current, limit=12)
+        built = self.build(now=current, limit=review_limit)
         if built.get("direct_trigger"):
             return {"settled": False, "reason": "direct_trigger_requires_exact_focus"}
         if not built.get("eligible_count"):
             return {"settled": False, "reason": "set_empty"}
         if str(built.get("set_id") or "") != str(set_id or ""):
             return {"settled": False, "reason": "set_changed"}
-        members = list(built.get("eligible_membership") or [])
+        if str(built.get("review_id") or "") != str(review_id or ""):
+            return {"settled": False, "reason": "review_changed"}
+        members = list(built.get("review_membership") or [])
         database = self.inbox.database
         receipts: list[str] = []
         with database.connect() as connection:
@@ -334,53 +378,38 @@ class AttentionCoordinator:
                 if owner is None:
                     connection.rollback()
                     return {"settled": False, "reason": "unknown_source_owner"}
-                row = connection.execute(
-                    f"SELECT * FROM {owner.table} WHERE {owner.id_column} = ?",
-                    (str(member.get("source_id") or ""),),
-                ).fetchone()
-                if row is None or row["status"] != owner.available_status:
+                row, reason = owner.freeze_available_in_tx(
+                    connection,
+                    str(member.get("source_id") or ""),
+                    str(member.get("source_version") or ""),
+                    current,
+                )
+                if row is None:
                     connection.rollback()
-                    return {"settled": False, "reason": "set_member_not_current"}
-                if owner.source_version(row) != str(member.get("source_version") or ""):
-                    connection.rollback()
-                    return {"settled": False, "reason": "set_member_version_changed"}
-                if not owner.is_due(row, current):
-                    connection.rollback()
-                    return {"settled": False, "reason": "set_member_not_due"}
+                    return {"settled": False, "reason": reason}
                 frozen.append((owner, row, member))
             for owner, row, member in frozen:
-                source_id = str(row[owner.id_column])
-                generation = int(row["claim_generation"]) + 1
-                receipt_id = stable_id(
-                    "receipt", owner.source_kind, source_id, "quiet", set_id
+                result = {
+                    "set_id": set_id,
+                    "review_id": review_id,
+                    "scope": "review_membership",
+                }
+                receipt_id = owner.settle_row_in_tx(
+                    connection,
+                    row,
+                    "quiet",
+                    result=result,
+                    receipt_scope=f"{set_id}:{review_id}",
+                    now=current,
+                    increment_generation=True,
                 )
-                result = {"set_id": set_id, "scope": "full_membership"}
-                connection.execute(
-                    """INSERT INTO source_receipts (
-                           receipt_id, source_kind, source_id, outcome,
-                           result_json, created_at
-                       ) VALUES (?, ?, ?, 'quiet', ?, ?)""",
-                    (
-                        receipt_id, owner.source_kind, source_id,
-                        canonical_json(result), iso(current),
-                    ),
-                )
-                connection.execute(
-                    f"""UPDATE {owner.table} SET status = ?, outcome = 'quiet',
-                           claim_token = '', claim_generation = ?, claim_until = '',
-                           updated_at = ? WHERE {owner.id_column} = ?""",
-                    (
-                        owner.settlement_status(row, "quiet"), generation,
-                        iso(current), source_id,
-                    ),
-                )
-                owner.after_settle(connection, row, "quiet", current)
                 receipts.append(receipt_id)
             connection.commit()
         return {
             "settled": True,
             "set_id": set_id,
-            "scope": "full_membership",
+            "review_id": review_id,
+            "scope": "review_membership",
             "member_count": len(frozen),
             "receipt_ids": receipts,
         }
@@ -405,74 +434,31 @@ class AttentionCoordinator:
         database = self.inbox.database
         with database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                f"SELECT * FROM {owner.table} WHERE claim_token = ? AND status = 'claimed'",
-                (claim_token,),
-            ).fetchone()
+            row, reason = owner.current_claim_in_tx(connection, claim_token, current)
             if row is None:
-                connection.rollback()
-                return {"deferred": False, "reason": "claim_not_current"}
-            claim_until = parse_time(row["claim_until"])
-            if claim_until is not None and claim_until < current:
-                connection.rollback()
-                return {"deferred": False, "reason": "claim_expired"}
-            source_id = str(row[owner.id_column])
-            continuation_id = stable_id(
-                "continuation", source_kind, source_id, goal, stage, iso(due_at)
+                connection.commit()
+                return {"deferred": False, "reason": reason}
+            source_id = owner.row_id(row)
+            continuation = self.continuations.create_in_tx(
+                connection,
+                goal=goal,
+                stage=stage,
+                due_at=due_at,
+                causal_root_id=source_id,
+                parent_ref=f"{source_kind}:{source_id}",
+                source_refs=(f"{source_kind}:{source_id}",),
+                now=current,
             )
-            connection.execute(
-                """
-                INSERT INTO agent_continuations (
-                    continuation_id, causal_root_id, parent_ref, goal, stage,
-                    capability_refs_json, source_refs_json, due_at, timezone,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, '[]', ?, ?, 'Asia/Shanghai', ?, ?)
-                """,
-                (
-                    continuation_id, source_id, f"{source_kind}:{source_id}",
-                    goal, stage, canonical_json([f"{source_kind}:{source_id}"]),
-                    iso(due_at), iso(current), iso(current),
-                ),
-            )
-            receipt_id = stable_id(
-                "receipt", source_kind, source_id, "scheduled", str(row["claim_generation"])
-            )
+            continuation_id = str(continuation["continuation_id"])
             receipt_result = {"continuation_id": continuation_id, "due_at": iso(due_at)}
-            connection.execute(
-                """INSERT INTO source_receipts (
-                       receipt_id, source_kind, source_id, outcome, result_json, created_at
-                   ) VALUES (?, ?, ?, 'scheduled', ?, ?)""",
-                (receipt_id, source_kind, source_id, canonical_json(receipt_result), iso(current)),
+            receipt_id = owner.settle_row_in_tx(
+                connection,
+                row,
+                "scheduled",
+                result=receipt_result,
+                receipt_scope=str(row["claim_generation"]),
+                now=current,
             )
-            connection.execute(
-                f"""UPDATE {owner.table} SET status = ?, outcome = 'scheduled',
-                       claim_token = '', claim_until = '', updated_at = ?
-                     WHERE {owner.id_column} = ? AND claim_token = ?""",
-                (
-                    "settled"
-                    if source_kind == "ongoing" and row["kind"] == "scheduled"
-                    else owner.settled_status,
-                    iso(current), source_id, claim_token,
-                ),
-            )
-            if source_kind == "ongoing":
-                cycle = connection.execute(
-                    """SELECT cycle_id, cycle_ref, status FROM hermes_task_cycles WHERE task_id = ?
-                       ORDER BY cycle_ref DESC LIMIT 1""",
-                    (source_id,),
-                ).fetchone()
-                version = self.tasks._version(
-                    row, dict(cycle) if cycle is not None else {}
-                )
-                connection.execute(
-                    "UPDATE hermes_tasks SET attention_seen_version = ? WHERE task_id = ?",
-                    (version, source_id),
-                )
-                if cycle is not None:
-                    connection.execute(
-                        "UPDATE hermes_task_cycles SET attention_seen_at = ?, updated_at = ? WHERE cycle_id = ?",
-                        (iso(current), iso(current), cycle["cycle_id"]),
-                    )
             connection.commit()
         return {
             "deferred": True,

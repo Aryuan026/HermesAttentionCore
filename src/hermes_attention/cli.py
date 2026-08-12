@@ -110,6 +110,11 @@ def parser() -> argparse.ArgumentParser:
     focus_close.add_argument("--result-json", default="{}")
     focus_close.add_argument("--now", default="")
 
+    focus_validate = focus_sub.add_parser("validate")
+    focus_validate.add_argument("--source-kind", required=True)
+    focus_validate.add_argument("--claim-token", required=True)
+    focus_validate.add_argument("--now", default="")
+
     focus_defer = focus_sub.add_parser("defer")
     focus_defer.add_argument("--source-kind", required=True)
     focus_defer.add_argument("--claim-token", required=True)
@@ -119,6 +124,8 @@ def parser() -> argparse.ArgumentParser:
     focus_defer.add_argument("--now", default="")
     focus_quiet_set = focus_sub.add_parser("quiet-set")
     focus_quiet_set.add_argument("--set-id", required=True)
+    focus_quiet_set.add_argument("--review-id", required=True)
+    focus_quiet_set.add_argument("--review-limit", type=int, default=12)
     focus_quiet_set.add_argument("--now", default="")
     return root
 
@@ -202,6 +209,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         print_json(result)
         return 0 if result.get("settled") else 2
+    if args.command == "focus" and args.focus_command == "validate":
+        result = stores.attention.validate_claim(
+            args.source_kind, args.claim_token, now=optional_time(args.now)
+        )
+        print_json(result)
+        return 0 if result.get("valid") else 2
     if args.command == "focus" and args.focus_command == "defer":
         result = stores.attention.defer(
             args.source_kind, args.claim_token, goal=args.goal, stage=args.stage,
@@ -211,7 +224,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if result.get("deferred") else 2
     if args.command == "focus" and args.focus_command == "quiet-set":
         result = stores.attention.quiet_set(
-            args.set_id, now=optional_time(args.now)
+            args.set_id,
+            args.review_id,
+            review_limit=args.review_limit,
+            now=optional_time(args.now),
         )
         print_json(result)
         return 0 if result.get("settled") else 2

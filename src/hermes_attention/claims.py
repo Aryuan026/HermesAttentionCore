@@ -26,15 +26,177 @@ class ClaimStore:
     def __init__(self, database: RuntimeDatabase):
         self.database = database
 
-    def _release_expired(self, connection: sqlite3.Connection, now: datetime) -> None:
-        connection.execute(
-            f"""
-            UPDATE {self.table}
-               SET status = ?, claim_token = '', claim_until = '', updated_at = ?
-             WHERE status = 'claimed' AND claim_until != '' AND claim_until <= ?
-            """,
-            (self.available_status, iso(now), iso(now)),
+    def row_id(self, row: sqlite3.Row) -> str:
+        return str(row[self.id_column])
+
+    def expired_claim_status(self, row: sqlite3.Row) -> str:
+        return self.available_status
+
+    def recover_expired_claims_in_tx(
+        self,
+        connection: sqlite3.Connection,
+        now: datetime,
+    ) -> int:
+        rows = connection.execute(
+            f"""SELECT * FROM {self.table}
+                 WHERE status = 'claimed' AND claim_until != '' AND claim_until <= ?""",
+            (iso(now),),
+        ).fetchall()
+        recovered = 0
+        for row in rows:
+            cursor = connection.execute(
+                f"""UPDATE {self.table}
+                       SET status = ?, claim_token = '', claim_until = '', updated_at = ?
+                     WHERE {self.id_column} = ? AND status = 'claimed'
+                       AND claim_until != '' AND claim_until <= ?""",
+                (
+                    self.expired_claim_status(row),
+                    iso(now),
+                    self.row_id(row),
+                    iso(now),
+                ),
+            )
+            recovered += cursor.rowcount
+        return recovered
+
+    def recover_expired_claims(self, *, now: datetime | None = None) -> int:
+        current = now or utc_now()
+        with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            recovered = self.recover_expired_claims_in_tx(connection, current)
+            connection.commit()
+        return recovered
+
+    def claim_block_reason(self, row: sqlite3.Row) -> str | None:
+        return None
+
+    def invalidate_blocked_claim_in_tx(
+        self,
+        connection: sqlite3.Connection,
+        row: sqlite3.Row,
+        now: datetime,
+    ) -> None:
+        return None
+
+    def current_claim_in_tx(
+        self,
+        connection: sqlite3.Connection,
+        claim_token: str,
+        now: datetime,
+    ) -> tuple[sqlite3.Row | None, str | None]:
+        row = connection.execute(
+            f"SELECT * FROM {self.table} WHERE claim_token = ? AND status = 'claimed'",
+            (claim_token,),
+        ).fetchone()
+        if row is None:
+            return None, "claim_not_current"
+        claim_until = parse_time(row["claim_until"])
+        if claim_until is not None and claim_until <= now:
+            connection.execute(
+                f"""UPDATE {self.table}
+                       SET status = ?, claim_token = '', claim_until = '', updated_at = ?
+                     WHERE {self.id_column} = ? AND claim_token = ?""",
+                (
+                    self.expired_claim_status(row),
+                    iso(now),
+                    self.row_id(row),
+                    claim_token,
+                ),
+            )
+            return None, "claim_expired"
+        blocked = self.claim_block_reason(row)
+        if blocked:
+            self.invalidate_blocked_claim_in_tx(connection, row, now)
+            return None, blocked
+        return row, None
+
+    def validate_claim(
+        self,
+        claim_token: str,
+        *,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        current = now or utc_now()
+        with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row, reason = self.current_claim_in_tx(connection, claim_token, current)
+            connection.commit()
+        if row is None:
+            return {"valid": False, "reason": reason}
+        return {
+            "valid": True,
+            "source_kind": self.source_kind,
+            "source_id": self.row_id(row),
+            "source_version": self.source_version(row),
+            "claim_generation": int(row["claim_generation"]),
+            "claim_until": str(row["claim_until"]),
+        }
+
+    def freeze_available_in_tx(
+        self,
+        connection: sqlite3.Connection,
+        source_id: str,
+        source_version: str,
+        now: datetime,
+    ) -> tuple[sqlite3.Row | None, str | None]:
+        row = connection.execute(
+            f"SELECT * FROM {self.table} WHERE {self.id_column} = ?",
+            (source_id,),
+        ).fetchone()
+        if row is None or row["status"] != self.available_status:
+            return None, "review_member_not_current"
+        if self.source_version(row) != source_version:
+            return None, "review_member_version_changed"
+        if not self.is_due(row, now):
+            return None, "review_member_not_due"
+        return row, None
+
+    def settle_row_in_tx(
+        self,
+        connection: sqlite3.Connection,
+        row: sqlite3.Row,
+        outcome: str,
+        *,
+        result: Mapping[str, Any],
+        receipt_scope: str,
+        now: datetime,
+        increment_generation: bool = False,
+    ) -> str:
+        if outcome not in OUTCOMES:
+            raise ValueError("invalid outcome")
+        source_id = self.row_id(row)
+        generation = int(row["claim_generation"]) + int(increment_generation)
+        receipt_id = stable_id(
+            "receipt", self.source_kind, source_id, outcome, receipt_scope
         )
+        connection.execute(
+            """INSERT INTO source_receipts (
+                   receipt_id, source_kind, source_id, outcome, result_json, created_at
+               ) VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                receipt_id,
+                self.source_kind,
+                source_id,
+                outcome,
+                canonical_json(dict(result)),
+                iso(now),
+            ),
+        )
+        connection.execute(
+            f"""UPDATE {self.table}
+                   SET status = ?, outcome = ?, claim_token = '',
+                       claim_generation = ?, claim_until = '', updated_at = ?
+                 WHERE {self.id_column} = ?""",
+            (
+                self.settlement_status(row, outcome),
+                outcome,
+                generation,
+                iso(now),
+                source_id,
+            ),
+        )
+        self.after_settle(connection, row, outcome, now)
+        return receipt_id
 
     def claim_exact(
         self,
@@ -47,7 +209,7 @@ class ClaimStore:
         current = now or utc_now()
         with self.database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            self._release_expired(connection, current)
+            self.recover_expired_claims_in_tx(connection, current)
             row = connection.execute(
                 f"SELECT * FROM {self.table} WHERE {self.id_column} = ?",
                 (source_id,),
@@ -103,43 +265,19 @@ class ClaimStore:
         current = now or utc_now()
         with self.database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                f"SELECT * FROM {self.table} WHERE claim_token = ? AND status = 'claimed'",
-                (claim_token,),
-            ).fetchone()
+            row, reason = self.current_claim_in_tx(connection, claim_token, current)
             if row is None:
-                connection.rollback()
-                return {"settled": False, "reason": "claim_not_current"}
-            claim_until = parse_time(row["claim_until"])
-            if claim_until is not None and claim_until < current:
-                connection.rollback()
-                return {"settled": False, "reason": "claim_expired"}
-            source_id = str(row[self.id_column])
-            target_status = self.settlement_status(row, outcome)
-            receipt_id = stable_id(
-                "receipt", self.source_kind, source_id, outcome, str(row["claim_generation"])
+                connection.commit()
+                return {"settled": False, "reason": reason}
+            source_id = self.row_id(row)
+            receipt_id = self.settle_row_in_tx(
+                connection,
+                row,
+                outcome,
+                result=dict(result or {}),
+                receipt_scope=str(row["claim_generation"]),
+                now=current,
             )
-            connection.execute(
-                """
-                INSERT INTO source_receipts (
-                    receipt_id, source_kind, source_id, outcome, result_json, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    receipt_id, self.source_kind, source_id, outcome,
-                    canonical_json(dict(result or {})), iso(current),
-                ),
-            )
-            connection.execute(
-                f"""
-                UPDATE {self.table}
-                   SET status = ?, outcome = ?, claim_token = '',
-                       claim_until = '', updated_at = ?
-                 WHERE {self.id_column} = ? AND claim_token = ?
-                """,
-                (target_status, outcome, iso(current), source_id, claim_token),
-            )
-            self.after_settle(connection, row, outcome, current)
             connection.commit()
         return {
             "settled": True,

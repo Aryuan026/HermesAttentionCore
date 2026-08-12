@@ -41,26 +41,55 @@ class ContinuationStore(ClaimStore):
         now: datetime | None = None,
     ) -> dict[str, Any]:
         current = now or utc_now()
+        with self.database.connect() as connection:
+            result = self.create_in_tx(
+                connection,
+                goal=goal,
+                stage=stage,
+                due_at=due_at,
+                causal_root_id=causal_root_id,
+                parent_ref=parent_ref,
+                capability_refs=capability_refs,
+                source_refs=source_refs,
+                timezone_name=timezone_name,
+                now=current,
+            )
+        return result
+
+    def create_in_tx(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        goal: str,
+        stage: str,
+        due_at: datetime,
+        causal_root_id: str = "",
+        parent_ref: str = "",
+        capability_refs: Sequence[str] = (),
+        source_refs: Sequence[str] = (),
+        timezone_name: str = "Asia/Shanghai",
+        now: datetime,
+    ) -> dict[str, Any]:
+        current = now
         if due_at <= current:
             raise ValueError("due_at must be in the future")
         continuation_id = stable_id(
             "continuation", causal_root_id, parent_ref, goal, stage, iso(due_at)
         )
-        with self.database.connect() as connection:
-            cursor = connection.execute(
-                """
-                INSERT OR IGNORE INTO agent_continuations (
-                    continuation_id, causal_root_id, parent_ref, goal, stage,
-                    capability_refs_json, source_refs_json, due_at, timezone,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    continuation_id, causal_root_id, parent_ref, goal, stage,
-                    canonical_json(list(capability_refs)), canonical_json(list(source_refs)),
-                    iso(due_at), timezone_name, iso(current), iso(current),
-                ),
-            )
+        cursor = connection.execute(
+            """
+            INSERT OR IGNORE INTO agent_continuations (
+                continuation_id, causal_root_id, parent_ref, goal, stage,
+                capability_refs_json, source_refs_json, due_at, timezone,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                continuation_id, causal_root_id, parent_ref, goal, stage,
+                canonical_json(list(capability_refs)), canonical_json(list(source_refs)),
+                iso(due_at), timezone_name, iso(current), iso(current),
+            ),
+        )
         return {"created": cursor.rowcount == 1, "continuation_id": continuation_id}
 
     def due(self, *, now: datetime | None = None) -> list[dict[str, Any]]:

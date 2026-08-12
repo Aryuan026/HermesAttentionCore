@@ -270,7 +270,9 @@ class TaskStore(ClaimStore):
         return {"completed": True, "cycle_id": cycle["cycle_id"]}
 
     def settlement_status(self, row: sqlite3.Row, outcome: str) -> str:
-        if row["kind"] == "scheduled" and outcome in {"acted", "reported", "quiet"}:
+        if row["kind"] == "scheduled" and outcome in {
+            "acted", "reported", "quiet", "scheduled",
+        }:
             return "settled"
         return "active"
 

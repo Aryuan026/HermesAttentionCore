@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from hermes_attention.inbox import AgentEvent
 from hermes_attention.runtime import heartbeat, open_runtime, render_cron_preflight
@@ -124,13 +125,16 @@ class AttentionRuntimeTest(unittest.TestCase):
         self.assertEqual(built["eligible_count"], 5)
         self.assertEqual(built["prompt_count"], 2)
         self.assertEqual(len(built["eligible_membership"]), 5)
+        self.assertEqual(len(built["review_membership"]), 2)
 
-    def test_select_none_quiets_exact_full_set_and_does_not_rewake(self) -> None:
+    def test_select_none_quiets_exact_review_set_and_does_not_rewake(self) -> None:
         self.stores.inbox.ingest(self.event(), now=self.now)
         self.stores.tasks.create(kind="standing", title="整理知识库", now=self.now)
         built = self.stores.attention.build(now=self.now)
         self.assertEqual(built["eligible_count"], 2)
-        settled = self.stores.attention.quiet_set(built["set_id"], now=self.now)
+        settled = self.stores.attention.quiet_set(
+            built["set_id"], built["review_id"], now=self.now
+        )
         self.assertTrue(settled["settled"])
         self.assertEqual(settled["member_count"], 2)
         self.assertEqual(len(settled["receipt_ids"]), 2)
@@ -140,10 +144,147 @@ class AttentionRuntimeTest(unittest.TestCase):
         self.stores.inbox.ingest(self.event(), now=self.now)
         built = self.stores.attention.build(now=self.now)
         self.stores.inbox.ingest(self.event(2, subject="sample-2"), now=self.now)
-        settled = self.stores.attention.quiet_set(built["set_id"], now=self.now)
+        settled = self.stores.attention.quiet_set(
+            built["set_id"], built["review_id"], now=self.now
+        )
         self.assertFalse(settled["settled"])
         self.assertEqual(settled["reason"], "set_changed")
         self.assertEqual(len(self.stores.database.receipts()), 0)
+
+    def test_quiet_set_closes_only_candidates_fully_shown_to_agent(self) -> None:
+        for number in range(1, 6):
+            self.stores.inbox.ingest(self.event(number), now=self.now)
+        built = self.stores.attention.build(now=self.now)
+        settled = self.stores.attention.quiet_set(
+            built["set_id"], built["review_id"], now=self.now
+        )
+        self.assertTrue(settled["settled"])
+        self.assertEqual(settled["scope"], "review_membership")
+        self.assertEqual(settled["member_count"], 2)
+        self.assertEqual(
+            self.stores.attention.build(now=self.now)["eligible_count"], 3
+        )
+
+    def test_quiet_set_requires_exact_review_identity(self) -> None:
+        self.stores.inbox.ingest(self.event(), now=self.now)
+        built = self.stores.attention.build(now=self.now)
+        settled = self.stores.attention.quiet_set(
+            built["set_id"], "review_wrong", now=self.now
+        )
+        self.assertFalse(settled["settled"])
+        self.assertEqual(settled["reason"], "review_changed")
+        self.assertEqual(len(self.stores.database.receipts()), 0)
+
+    def test_quiet_set_rolls_back_every_owner_when_one_owner_hook_fails(self) -> None:
+        continuation = self.stores.continuations.create(
+            goal="继续一项跨 owner 工作",
+            stage="现在处理",
+            due_at=self.now + timedelta(seconds=1),
+            now=self.now,
+        )
+        task = self.stores.tasks.create(
+            kind="standing", title="维护知识库", now=self.now
+        )
+        current = self.now + timedelta(seconds=1)
+        built = self.stores.attention.build(now=current)
+        with patch.object(
+            self.stores.tasks,
+            "after_settle",
+            side_effect=RuntimeError("injected owner hook failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "injected owner hook failure"):
+                self.stores.attention.quiet_set(
+                    built["set_id"], built["review_id"], now=current
+                )
+        with self.stores.database.connect() as connection:
+            continuation_status = connection.execute(
+                "SELECT status FROM agent_continuations WHERE continuation_id = ?",
+                (continuation["continuation_id"],),
+            ).fetchone()["status"]
+            task_row = connection.execute(
+                "SELECT status, attention_seen_version FROM hermes_tasks WHERE task_id = ?",
+                (task["task_id"],),
+            ).fetchone()
+        self.assertEqual(continuation_status, "pending")
+        self.assertEqual(task_row["status"], "active")
+        self.assertEqual(task_row["attention_seen_version"], "")
+        self.assertEqual(len(self.stores.database.receipts()), 0)
+
+    def test_set_identity_ignores_time_varying_rank_order(self) -> None:
+        self.stores.continuations.create(
+            goal="继续一项旧工作",
+            stage="已经可以开始",
+            due_at=self.now + timedelta(seconds=1),
+            now=self.now,
+        )
+        self.stores.tasks.create(
+            kind="scheduled",
+            title="三天后提交",
+            due_at=self.now + timedelta(hours=72),
+            warn_hours=72,
+            now=self.now,
+        )
+        early = self.stores.attention.build(now=self.now + timedelta(seconds=1))
+        late = self.stores.attention.build(now=self.now + timedelta(hours=73))
+        self.assertEqual(early["eligible_membership"], late["eligible_membership"])
+        self.assertNotEqual(
+            [item["source_kind"] for item in early["opportunities"]],
+            [item["source_kind"] for item in late["opportunities"]],
+        )
+        self.assertEqual(early["set_id"], late["set_id"])
+
+    def test_expired_claim_recovery_runs_before_heartbeat_build(self) -> None:
+        self.stores.inbox.ingest(self.event(), now=self.now)
+        candidate = self.stores.attention.build(now=self.now)["opportunities"][0]
+        claim = self.stores.attention.claim_exact(
+            "provider_event",
+            candidate["source_id"],
+            candidate["source_version"],
+            now=self.now,
+        )
+        self.assertTrue(claim["claimed"])
+        later = self.now + timedelta(seconds=300)
+        self.assertEqual(self.stores.attention.build(now=later)["eligible_count"], 0)
+        recovered = heartbeat(self.stores, now=later)
+        self.assertEqual(recovered["maintenance"]["expired_claims_recovered"], 1)
+        self.assertEqual(recovered["attention"]["eligible_count"], 1)
+
+    def test_claimed_inbox_predecessor_fails_freshness_after_coalesce(self) -> None:
+        first = AgentEvent(**{**self.event(1).__dict__, "coalesce_key": "sample-1"})
+        second = AgentEvent(
+            **{
+                **self.event(2).__dict__,
+                "coalesce_key": "sample-1",
+                "subject_ref": "sample-1",
+            }
+        )
+        self.stores.inbox.ingest(first, now=self.now)
+        candidate = self.stores.attention.build(now=self.now)["opportunities"][0]
+        claim = self.stores.attention.claim_exact(
+            "provider_event",
+            candidate["source_id"],
+            candidate["source_version"],
+            now=self.now,
+        )
+        self.stores.inbox.ingest(second, now=self.now + timedelta(seconds=1))
+        stale = self.stores.attention.validate_claim(
+            "provider_event", claim["claim_token"], now=self.now + timedelta(seconds=1)
+        )
+        self.assertFalse(stale["valid"])
+        self.assertEqual(stale["reason"], "source_superseded")
+        rejected = self.stores.attention.settle(
+            "provider_event",
+            claim["claim_token"],
+            "acted",
+            result={"action": "must not become canonical"},
+            now=self.now + timedelta(seconds=1),
+        )
+        self.assertFalse(rejected["settled"])
+        self.assertEqual(rejected["reason"], "claim_not_current")
+        self.assertEqual(len(self.stores.database.receipts()), 0)
+        current = self.stores.attention.build(now=self.now + timedelta(seconds=1))
+        self.assertEqual(current["eligible_count"], 1)
+        self.assertEqual(current["opportunities"][0]["source_id"], second.event_id)
 
     def test_foreground_intention_can_create_continuation_without_chat_ingest(self) -> None:
         created = self.stores.continuations.create(

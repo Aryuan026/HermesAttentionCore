@@ -9,8 +9,12 @@ work.
   only after canonical ingest.
 - Actual abilities stay in Hermes native tools, MCP, and plugins. Do not build
   an Attention tool registry or whitelist.
-- Attention builds one read-only bounded set. Choice uses exact source claim;
-  reviewed-quiet uses exact full-set settlement. No FIFO fallback.
+- Attention builds one read-only candidate view. Choice uses an exact source
+  claim; reviewed-quiet settles only the exact bounded `review_membership`
+  whose full content was shown. `set_id` must never depend on score order. No
+  FIFO fallback.
+- Recover expired claims before build. A claimed Inbox predecessor superseded
+  by newer coalesced state must fail freshness validation before side effects.
 - Cron wakes one normal foreground Agent. Do not launch a nested Agent or turn
   script output into prewritten owner speech.
 - Keep secrets, runtime databases, logs, chat text, and receipts out of Git.

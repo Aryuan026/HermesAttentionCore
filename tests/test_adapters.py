@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import stat
 import tempfile
 import unittest
@@ -85,6 +86,32 @@ class AdapterRegistryTest(unittest.TestCase):
         self.assertIn('"source_refs": ["forum:thread:42", "forum:reply:7"]', packet)
         self.assertIn('"capability_hints": ["communication"]', packet)
         self.assertIn('"attention_hints_are_not_tool_authority": true', packet)
+
+    def test_inbox_sanitizes_refs_and_rejects_unbounded_payloads(self) -> None:
+        event = AgentEvent(
+            provider_id="ai-forum",
+            provider_event_id="unsafe-ref",
+            event_kind="forum_thread_updated",
+            title="一条外部消息",
+            event_at=self.now,
+            compact_payload={"topic": "正常内容"},
+            source_refs=("https://example.test/thread?signature=must-not-leak&view=1",),
+        )
+        self.stores.inbox.ingest(event, now=self.now)
+        built = self.stores.attention.build(now=self.now)
+        encoded = json.dumps(built, ensure_ascii=False)
+        self.assertNotIn("must-not-leak", encoded)
+        self.assertIn("signature=[redacted]", encoded)
+
+        oversized = AgentEvent(
+            **{
+                **event.__dict__,
+                "provider_event_id": "too-many-keys",
+                "compact_payload": {f"key-{number}": number for number in range(33)},
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "too many keys"):
+            self.stores.inbox.ingest(oversized, now=self.now)
 
     def test_broken_adapter_is_reported_without_blocking_another_owner(self) -> None:
         self.stores.calendar.schedule(

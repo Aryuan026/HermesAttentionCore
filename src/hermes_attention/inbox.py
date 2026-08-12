@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import sqlite3
 from dataclasses import dataclass, field
@@ -14,21 +15,80 @@ from .db import RuntimeDatabase, canonical_json, iso, parse_time, stable_id, utc
 PRIORITIES = {"low", "normal", "high", "urgent", "critical"}
 _SECRET_KEYS = re.compile(r"token|secret|password|authorization|cookie|api.?key", re.I)
 _SECRET_VALUES = re.compile(
-    r"(?i)(bearer\s+)[a-z0-9._~+/=-]+|((?:api[_-]?key|token|secret|password)\s*[=:]\s*)\S+"
+    r"(?i)(bearer\s+)[a-z0-9._~+/=-]+|"
+    r"((?:api[_-]?key|access[_-]?token|token|secret|password|authorization|"
+    r"signature|sig)\s*[=:]\s*)[^\s&#]+"
 )
+MAX_PAYLOAD_DEPTH = 6
+MAX_CONTAINER_ITEMS = 32
+MAX_PAYLOAD_NODES = 256
+MAX_PAYLOAD_BYTES = 16_384
+MAX_SOURCE_REFS = 32
+MAX_CAPABILITY_HINTS = 16
 
 
-def _safe_value(value: Any) -> Any:
+def _safe_value(
+    value: Any,
+    *,
+    depth: int = 0,
+    budget: list[int] | None = None,
+) -> Any:
+    if budget is None:
+        budget = [MAX_PAYLOAD_NODES]
+    budget[0] -= 1
+    if budget[0] < 0:
+        raise ValueError("compact_payload exceeds the node limit")
+    if depth > MAX_PAYLOAD_DEPTH:
+        raise ValueError("compact_payload exceeds the depth limit")
     if isinstance(value, Mapping):
+        if len(value) > MAX_CONTAINER_ITEMS:
+            raise ValueError("compact_payload mapping has too many keys")
         return {
-            str(key): "[redacted]" if _SECRET_KEYS.search(str(key)) else _safe_value(item)
+            str(key)[:120]: (
+                "[redacted]"
+                if _SECRET_KEYS.search(str(key))
+                else _safe_value(item, depth=depth + 1, budget=budget)
+            )
             for key, item in value.items()
         }
-    if isinstance(value, list):
-        return [_safe_value(item) for item in value]
+    if isinstance(value, (list, tuple)):
+        if len(value) > MAX_CONTAINER_ITEMS:
+            raise ValueError("compact_payload list has too many items")
+        return [
+            _safe_value(item, depth=depth + 1, budget=budget) for item in value
+        ]
     if isinstance(value, str):
         return _SECRET_VALUES.sub(lambda match: (match.group(1) or match.group(2) or "") + "[redacted]", value)[:2000]
-    return value
+    if value is None or isinstance(value, (bool, int)):
+        return value
+    if isinstance(value, float) and math.isfinite(value):
+        return value
+    raise ValueError("compact_payload contains an unsupported value")
+
+
+def _safe_strings(
+    values: Sequence[str],
+    *,
+    label: str,
+    limit: int,
+    item_limit: int,
+) -> list[str]:
+    if isinstance(values, (str, bytes)) or len(values) > limit:
+        raise ValueError(f"{label} exceeds its item limit")
+    result = []
+    for value in values:
+        if not isinstance(value, str):
+            raise ValueError(f"{label} must contain strings")
+        result.append(_safe_value(value)[:item_limit])
+    return result
+
+
+def _safe_payload(value: Mapping[str, Any]) -> Mapping[str, Any]:
+    safe = _safe_value(value)
+    encoded = canonical_json(safe).encode("utf-8")
+    if len(encoded) > MAX_PAYLOAD_BYTES:
+        raise ValueError("compact_payload exceeds the encoded size limit")
+    return safe
 
 
 @dataclass(frozen=True)
@@ -57,7 +117,7 @@ class AgentEvent:
             "version",
             self.event_kind,
             self.title,
-            canonical_json(_safe_value(self.compact_payload)),
+            canonical_json(_safe_payload(self.compact_payload)),
             iso(self.event_at),
         )
 
@@ -77,16 +137,61 @@ class InboxStore(ClaimStore):
         expires = parse_time(row["expires_at"])
         return expires is None or expires > now
 
+    def expired_claim_status(self, row: sqlite3.Row) -> str:
+        return "superseded" if row["superseded_by"] else self.available_status
+
+    def claim_block_reason(self, row: sqlite3.Row) -> str | None:
+        return "source_superseded" if row["superseded_by"] else None
+
+    def invalidate_blocked_claim_in_tx(
+        self,
+        connection: sqlite3.Connection,
+        row: sqlite3.Row,
+        now: datetime,
+    ) -> None:
+        connection.execute(
+            """UPDATE agent_events
+                  SET status = 'superseded', claim_token = '', claim_until = '',
+                      updated_at = ?
+                WHERE event_id = ? AND status = 'claimed'""",
+            (iso(now), row["event_id"]),
+        )
+
     def ingest(self, event: AgentEvent, *, now: datetime | None = None) -> dict[str, Any]:
         current = now or utc_now()
         priority = event.priority_hint if event.priority_hint in PRIORITIES else "normal"
         expires = event.expires_at or (event.event_at + timedelta(days=7))
-        safe_payload = _safe_value(event.compact_payload)
+        provider_id = str(event.provider_id).strip()[:120]
+        provider_event_id = str(event.provider_event_id).strip()[:240]
+        event_kind = str(event.event_kind).strip()[:120]
+        if not provider_id or not provider_event_id or not event_kind:
+            raise ValueError("provider_id, provider_event_id, and event_kind are required")
+        safe_payload = _safe_payload(event.compact_payload)
+        safe_refs = _safe_strings(
+            event.source_refs,
+            label="source_refs",
+            limit=MAX_SOURCE_REFS,
+            item_limit=1000,
+        )
+        safe_hints = _safe_strings(
+            event.capability_hints,
+            label="capability_hints",
+            limit=MAX_CAPABILITY_HINTS,
+            item_limit=80,
+        )
+        event_id = stable_id("event", provider_id, provider_event_id)
+        source_version = stable_id(
+            "version",
+            event_kind,
+            event.title,
+            canonical_json(safe_payload),
+            iso(event.event_at),
+        )
         with self.database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             existing = connection.execute(
                 "SELECT event_id FROM agent_events WHERE provider_id = ? AND provider_event_id = ?",
-                (event.provider_id, event.provider_event_id),
+                (provider_id, provider_event_id),
             ).fetchone()
             if existing is not None:
                 connection.commit()
@@ -95,10 +200,13 @@ class InboxStore(ClaimStore):
                 connection.execute(
                     """
                     UPDATE agent_events
-                       SET status = 'superseded', superseded_by = ?, updated_at = ?
-                     WHERE provider_id = ? AND coalesce_key = ? AND status = 'pending'
+                       SET status = CASE WHEN status = 'pending'
+                                         THEN 'superseded' ELSE status END,
+                           superseded_by = ?, updated_at = ?
+                     WHERE provider_id = ? AND coalesce_key = ?
+                       AND status IN ('pending', 'claimed')
                     """,
-                    (event.event_id, iso(current), event.provider_id, event.coalesce_key),
+                    (event_id, iso(current), provider_id, event.coalesce_key[:240]),
                 )
             connection.execute(
                 """
@@ -111,16 +219,16 @@ class InboxStore(ClaimStore):
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    event.event_id, event.provider_id, event.provider_event_id,
-                    event.source_version, event.event_kind, " ".join(event.title.split())[:240],
-                    canonical_json(safe_payload), canonical_json(list(event.source_refs)),
-                    canonical_json(list(event.capability_hints)), event.subject_ref,
-                    event.coalesce_key, event.followup_of, priority, iso(event.event_at),
+                    event_id, provider_id, provider_event_id,
+                    source_version, event_kind, " ".join(event.title.split())[:240],
+                    canonical_json(safe_payload), canonical_json(safe_refs),
+                    canonical_json(safe_hints), event.subject_ref[:240],
+                    event.coalesce_key[:240], event.followup_of[:240], priority, iso(event.event_at),
                     iso(current), iso(expires), iso(current), iso(current),
                 ),
             )
             connection.commit()
-        return {"inserted": True, "event_id": event.event_id}
+        return {"inserted": True, "event_id": event_id}
 
     def due(self, *, now: datetime | None = None) -> list[dict[str, Any]]:
         current = now or utc_now()

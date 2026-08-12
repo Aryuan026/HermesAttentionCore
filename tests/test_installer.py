@@ -122,9 +122,13 @@ class InstallerTest(unittest.TestCase):
             (cron / "jobs.py").write_text(
                 "import json, os\n"
                 "from pathlib import Path\n"
+                "STATE = {'id': '4336e0f611c8'}\n"
+                "def get_job(job_id):\n"
+                "    return dict(STATE) if job_id == STATE['id'] else None\n"
                 "def update_job(job_id, updates):\n"
+                "    STATE.update(updates)\n"
                 "    Path(os.environ['BIND_LOG']).write_text(json.dumps({'job_id': job_id, 'updates': updates}))\n"
-                "    return {'id': job_id, **updates}\n",
+                "    return dict(STATE)\n",
                 encoding="utf-8",
             )
             venv_bin = agent / "venv" / "bin"
@@ -148,6 +152,35 @@ class InstallerTest(unittest.TestCase):
             self.assertTrue(written["updates"]["attach_to_session"])
             self.assertEqual(written["updates"]["origin"]["chat_id"], "private-chat")
             self.assertIsNone(written["updates"]["origin"]["user_id"])
+
+    def test_native_session_bind_fails_closed_when_hermes_api_drifted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cron = root / "cron"
+            cron.mkdir()
+            (cron / "__init__.py").write_text("", encoding="utf-8")
+            (cron / "jobs.py").write_text(
+                "def update_job(job_id, updates):\n"
+                "    return {'id': job_id, **updates}\n",
+                encoding="utf-8",
+            )
+            environment = dict(os.environ)
+            environment["PYTHONPATH"] = str(root)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(self.repository / "scripts" / "hermes_attention_bind_cron.py"),
+                    "--job-id", "job-1",
+                    "--platform", "mobile",
+                    "--chat-id", "chat-1",
+                ],
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("get_job/update_job required", result.stderr)
 
 
 if __name__ == "__main__":

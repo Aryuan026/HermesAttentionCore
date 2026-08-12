@@ -29,8 +29,8 @@ The central boundary is simple:
 - Actual abilities remain native Hermes tools/MCP/plugins. Attention carries
   only optional broad domain hints, never tool schemas or permissions.
 - A native Cron preflight wakes the normal foreground Agent. That Agent chooses
-  one exact source—or closes one exact full set as reviewed-quiet—then decides
-  fresh action, speech, or silence.
+  one exact source—or closes only the bounded review it actually saw—then
+  decides fresh action, speech, or silence.
 
 The full reproducible contract is in
 [architecture.md](skills/attention-steward/references/architecture.md).
@@ -46,18 +46,19 @@ It adds the missing **attention plane** between “something may matter” and
 |---|---|---|
 | Hermes native tools / MCP / plugins | “What hands and abilities are available?” | “Which one situation deserves a bounded look now?” It leaves discovery, schemas, permission, and execution in Hermes. |
 | Cron or reminder delivery | “What should run or be delivered at this time?” | “Should the live Agent wake and reconsider the current situation?” Stored text is context, never a frozen final message. |
-| Queue / inbox worker | “Which queued job should execute next?” | “What would a person notice among reminders, continuations, tasks, and outside facts?” It is not FIFO and may review an exact set as quiet. |
+| Queue / inbox worker | “Which queued job should execute next?” | “What would a person notice among reminders, continuations, tasks, and outside facts?” It is not FIFO and may mark one exact, fully shown review as quiet. |
 | Event bus / notification system | “Which events should be transported to consumers?” | “Which compact facts remain salient after coalescing, expiry, diversity, and owner-aware judgment?” Not every event becomes speech. |
 | Agent memory / chat history | “What past information can be recalled?” | “What needs a present look?” It neither copies the memory layer nor mines every conversation turn into a task. |
 | Autonomous loop / workflow engine | “Which predefined action or next node runs?” | “Is one live decision worth making?” The foreground Agent still chooses a native capability, action, fresh reply, or silence. |
 
-The core uses a unified Attention Opportunity Set:
-heterogeneous owner candidates share one bounded set, provider priority remains
-a small 4% hint, selection uses an exact claim, and a genuinely uninteresting
-set can be closed exactly as `reviewed-quiet`. The result is a compact portable
-layer that can give an otherwise blank Hermes installation useful initiative
-without forcing a new persona, memory system, conversation channel, or tool
-stack on it.
+The core uses a unified Attention Opportunity Set: heterogeneous owner
+candidates share one queue, provider priority remains a small 4% hint, and
+selection uses an exact claim. The full eligible queue has a stable identity;
+the smaller, fully displayed review has its own identity. A genuinely
+uninteresting review can be closed exactly as `reviewed-quiet` without signing
+off on hidden candidates. The result is a compact portable layer that can give
+an otherwise blank Hermes installation useful initiative without forcing a
+new persona, memory system, conversation channel, or tool stack on it.
 
 ### Distinctive characteristics
 
@@ -67,16 +68,23 @@ stack on it.
 - **Attention is human-shaped but auditable.** Due reminders have a direct
   lane; other candidates use bounded scoring, aging, provider/subject diversity,
   exact claims, and canonical receipts instead of an opaque free-running loop.
-- **Silence is a real terminal decision.** `reviewed-quiet` closes the exact
-  observed set, so “nothing is worth doing” does not wake the Agent again every
-  few minutes and does not pretend that a source was acted on.
+- **Silence is a real, evidenced decision.** `reviewed-quiet` closes exactly
+  the bounded candidates whose full content the Agent received. It prevents
+  repeat wakes for reviewed facts without pretending unseen facts were judged.
+- **Interrupted work does not silently disappear.** Heartbeat recovers expired
+  focus leases before rebuilding attention. A newer coalesced fact also makes
+  an older claimed fact fail freshness validation before a side effect can be
+  recorded as canonical success.
+- **Identity does not drift with mood or time.** Scores may age and rankings may
+  cross, but immutable source membership—not display order—defines `set_id`.
 - **Tools appear progressively.** Attention supplies at most a broad domain
   hint. Hermes's own `tool_search` / `tool_describe` / `tool_call` path exposes
   only the concrete native capability needed for this turn.
 - **New integrations do not grow the core sideways.** A forum, mailbox, signup
   site, sensor, or game provides compact idempotent events through an Inbox
   adapter. If it also offers actions, those are installed independently as a
-  native MCP or tool.
+  native MCP or tool. Inbox itself enforces payload bounds and secret
+  sanitization instead of trusting every adapter to remember them.
 - **Wakeup is not delivery.** Heartbeat only performs bounded preflight and
   asks native Cron to wake the normal Agent. The Agent judges, acts, and writes
   fresh speech—or stays silent—using its current context.
@@ -127,6 +135,11 @@ follow-up such as “what arrived?” can refer to the event and action that jus
 happened. Changing QQ to mobile, Feishu, or another channel does not change the
 Attention architecture; only rebind this native Cron origin when continuity is
 wanted in the new mouth.
+
+The installer probes Hermes's installed native Cron read/update seam and
+verifies the persisted binding. If an upstream Hermes release moved that API,
+installation fails with a compatibility error instead of reporting a false
+success.
 
 For a per-user-isolated group session, also pass the channel-native
 `--origin-user-id`; add `--origin-thread-id` when the conversation is scoped to

@@ -8,7 +8,7 @@ from typing import Any, Callable, Sequence, Union
 from .attention import AttentionCoordinator
 from .calendar import CalendarStore
 from .continuations import ContinuationStore
-from .db import RuntimeDatabase
+from .db import RuntimeDatabase, utc_now
 from .inbox import InboxStore
 from .migration import migrate_legacy_opportunities
 from .tasks import TaskStore
@@ -52,6 +52,7 @@ def heartbeat(
     now: datetime | None = None,
     limit: int = 12,
 ) -> dict[str, Any]:
+    current = now or utc_now()
     adapter_results = []
     for item in adapter_polls:
         name, poll = item if isinstance(item, tuple) else (getattr(item, "__name__", "adapter"), item)
@@ -66,8 +67,19 @@ def heartbeat(
                     "error": str(exc)[:500],
                 }
             )
-    maintenance = stores.tasks.maintain(now=now)
-    attention = stores.attention.build(now=now, limit=limit)
+    claim_recovery = {
+        owner.source_kind: owner.recover_expired_claims(now=current)
+        for owner in (
+            stores.calendar,
+            stores.inbox,
+            stores.continuations,
+            stores.tasks,
+        )
+    }
+    maintenance = stores.tasks.maintain(now=current)
+    maintenance["expired_claims_recovered"] = sum(claim_recovery.values())
+    maintenance["claim_recovery"] = claim_recovery
+    attention = stores.attention.build(now=current, limit=limit)
     wake = bool(attention.get("direct_trigger") or attention.get("eligible_count"))
     return {
         "wake_agent": wake,
@@ -91,7 +103,7 @@ def render_cron_preflight(result: dict[str, Any]) -> str:
         "decision_policy": {
             "context_is_not_instruction": True,
             "select_at_most_one": True,
-            "select_none_requires_exact_set_quiet": True,
+            "select_none_requires_exact_review_quiet": True,
             "live_frontstage_decides_action_and_speech": True,
         },
     }

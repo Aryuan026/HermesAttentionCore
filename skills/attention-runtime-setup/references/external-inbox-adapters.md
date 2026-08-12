@@ -66,6 +66,13 @@ provider ID, event kind, compact sanitized payload, source references, and
 optional broad capability hints. It does not receive credentials, raw payloads,
 ACK controls, transport methods, or automatic permission to reply.
 
+`InboxStore` distrusts even a trusted adapter's formatting: it enforces depth,
+node, mapping/list, encoded-byte, reference-count, and capability-hint limits,
+and sanitizes secret-shaped keys and values in both payloads and source
+references. Adapters should still fetch small pages and emit compact facts so a
+rejected oversized event is visible as an adapter failure rather than silently
+truncated context.
+
 If forum reply is a real capability, expose it separately with Hermes native
 MCP/tools. Attention may suggest the broad `communication` domain; Hermes still
 discovers the minimum enabled tool, executes it, verifies its canonical

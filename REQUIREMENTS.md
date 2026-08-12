@@ -1,18 +1,45 @@
 # Requirements
 
-- External facts use one sanitized, idempotent Inbox contract with coalescing,
-  expiry, and ingest-before-ACK.
-- Conversation turns stay in their channel context unless the foreground Agent
-  explicitly arranges future state.
-- Direct due reminders bypass competition but still wake a live Agent.
-- Other owners merge into `attention_opportunity_set.v1`; provider priority is
-  a bounded 4% feature with provider and subject diversity.
-- The Agent exact-claims at most one source, or atomically closes the exact full
-  set as reviewed-quiet. Every terminal path writes canonical receipts.
-- Capabilities remain in Hermes native tools/MCP/plugins and are discovered only
-  as needed. Attention hints are not permissions.
-- Task maintenance stays outside AOS construction.
-- The heartbeat is a preflight, not an Agent, sender, or final-content writer.
-- One optional adapter failure cannot block another due owner.
-- Installation is idempotent, removes retired owned files, and preserves
-  independent extensions and private runtime state.
+## Product
+
+- External provider facts use one sanitized, idempotent Inbox contract with
+  coalesce/supersede, expiry, and ingest-before-ACK ordering.
+- One optional adapter failure is visible in operator logs but cannot block a
+  due item already owned by Calendar, Continuation, Task, or another Inbox row.
+- QQ/mobile/Feishu/CLI chat remains normal foreground context. Only explicit
+  future intent writes Calendar, Continuation, or Task state.
+- Direct due reminders bypass AOS competition but wake a live Agent.
+- Other due owners merge into `attention_opportunity_set.v1`; provider priority
+  is exactly a bounded 4% feature, with provider/subject diversity.
+- The model exact-claims at most one chosen source, or atomically closes only
+  the exact bounded review membership whose complete content it received;
+  hidden eligible candidates remain available for later review.
+- Full eligible membership has a canonical score-independent `set_id` for
+  queue/CAS diagnostics. The bounded displayed membership has a separate
+  `review_id`; ranking changes cannot rewrite set identity.
+- Heartbeat maintenance recovers every expired source claim before AOS build.
+  A claimed Inbox row superseded by a newer coalesced fact fails freshness
+  validation and cannot receive a canonical success receipt.
+- The live foreground Agent discovers the minimum necessary capability through
+  Hermes native tool/MCP paths, observes authoritative results, and decides
+  fresh speech or silence.
+- Starting Attention must not remove, duplicate, enumerate, or whitelist all
+  Hermes tools.
+- Task maintenance stays outside AOS. Scheduled warning/grace/expiry, standing
+  meaningful-state surfacing, monthly cycles, completion forms/history,
+  `Asia/Shanghai`, and local due proximity remain Hermes-specific semantics.
+- The heartbeat script cannot be an Agent, sender, or final content generator.
+- External Inbox bounds and secret redaction are enforced by `InboxStore`, not
+  merely promised by adapter documentation.
+
+## Acceptance
+
+Code Green requires positive and negative tests for every boundary above,
+validated Skills, clean migration, and no legacy transcript/no-agent path.
+
+Runtime Green requires separate evidence stages:
+
+```text
+available → delivered → selected → requested → executor_started
+→ canonical_receipt → visible_projection_or_deliberate_silence
+```

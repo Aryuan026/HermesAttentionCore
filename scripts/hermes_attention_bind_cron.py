@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import importlib
+import inspect
 import json
 
 
@@ -21,7 +23,33 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    from cron.jobs import update_job
+    try:
+        jobs = importlib.import_module("cron.jobs")
+    except (ImportError, ModuleNotFoundError) as exc:
+        raise SystemExit(
+            "Hermes native Cron API is unavailable; update Hermes or use a "
+            "compatible Attention release"
+        ) from exc
+    get_job = getattr(jobs, "get_job", None)
+    update_job = getattr(jobs, "update_job", None)
+    if not callable(get_job) or not callable(update_job):
+        raise SystemExit(
+            "Hermes native Cron API is incompatible: get_job/update_job required"
+        )
+    try:
+        get_parameters = inspect.signature(get_job).parameters
+        update_parameters = inspect.signature(update_job).parameters
+    except (TypeError, ValueError) as exc:
+        raise SystemExit(
+            "Hermes native Cron API is incompatible: signatures are not inspectable"
+        ) from exc
+    if len(get_parameters) < 1 or len(update_parameters) < 2:
+        raise SystemExit(
+            "Hermes native Cron API is incompatible: unexpected function signatures"
+        )
+
+    if get_job(args.job_id) is None:
+        raise SystemExit(f"Hermes Cron job does not exist: {args.job_id}")
 
     origin = {
         "platform": args.platform,
@@ -30,13 +58,14 @@ def main(argv: list[str] | None = None) -> int:
         "thread_id": args.thread_id,
         "user_id": args.user_id,
     }
-    updated = update_job(
+    update_job(
         args.job_id,
         {"attach_to_session": True, "origin": origin},
     )
-    if updated is None:
-        raise SystemExit(f"Hermes Cron job does not exist: {args.job_id}")
-    if updated.get("attach_to_session") is not True or updated.get("origin") != origin:
+    persisted = get_job(args.job_id)
+    if persisted is None:
+        raise SystemExit(f"Hermes Cron job disappeared during update: {args.job_id}")
+    if persisted.get("attach_to_session") is not True or persisted.get("origin") != origin:
         raise SystemExit("Hermes Cron session binding was not persisted exactly")
     print(json.dumps({"job_id": args.job_id, "attached": True}, sort_keys=True))
     return 0

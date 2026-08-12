@@ -35,7 +35,9 @@ runtime.
 
 Re-running updates the same heartbeat rather than creating another. The
 installer refreshes only generic Attention Skills and moves the legacy
-conversation-transcript hook out of active hooks.
+conversation-transcript hook out of active hooks. Native session binding also
+probes Hermes's installed `cron.jobs.get_job/update_job` seam and fails closed
+with a compatibility error when upstream moved it.
 
 ## Add integrations at the correct seam
 
@@ -56,6 +58,10 @@ conversation-transcript hook out of active hooks.
 - A due reminder or eligible set ends with `{"wakeAgent": true}` and wakes the
   normal Cron Agent.
 - A fake provider event is idempotent, sanitized, and ACKed only after ingest.
+- Claim one candidate, let its lease expire, then verify the next heartbeat
+  recovers it before build.
+- More eligible items than the review window leaves unseen items pending after
+  a successful reviewed-quiet close.
 - The wake packet includes provider/event/source references as context, while
   capability hints remain non-authoritative broad domains.
 - Ordinary conversation produces no Inbox row unless the foreground Agent

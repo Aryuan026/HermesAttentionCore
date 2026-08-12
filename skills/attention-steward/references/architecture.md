@@ -44,8 +44,8 @@ source kind, and no project-owned delivery layer.
 
 | Required quality | Concrete implementation | Acceptance proof |
 |---|---|---|
-| Tool consolidation | The Agent sees one human-shaped loop: notice → judge → open one focus or close one exact set → find one hand → act/observe → close → speak/silence. Poll, ACK, coalesce, leases, generations, and owner tables stay behind adapters/stores. | The wake Skill exposes `focus open/close/defer/quiet-set`, not a bag of polling and database commands. |
-| Human-like attention and decisions | Calendar direct lane handles true due reminders. Other owners merge into one AOS. Ranking uses urgency 34%, owner impact 25%, continuity 18%, freshness 11%, aging 8%, and provider priority only 4%; provider and subject diversity prevent one feed dominating. The model may exact-claim one, or close the exact full set as reviewed-quiet. | Tests assert weights, diversity, direct lane, exact claim, set-level quiet CAS, and no repeat wake. |
+| Tool consolidation | The Agent sees one human-shaped loop: notice → judge → open one focus or close one exact review → find one hand → validate → act/observe → close → speak/silence. Poll, ACK, coalesce, leases, generations, and owner tables stay behind adapters/stores. | The wake Skill exposes `focus open/validate/close/defer/quiet-set`, not a bag of polling and database commands. |
+| Human-like attention and decisions | Calendar direct lane handles true due reminders. Other owners merge into one AOS. Ranking uses urgency 34%, owner impact 25%, continuity 18%, freshness 11%, aging 8%, and provider priority only 4%; provider and subject diversity prevent one feed dominating. Full eligible membership and bounded fully shown review membership have separate identities. The model may exact-claim one, or close only the exact review it actually considered. | Tests assert weights, diversity, direct lane, exact claim, canonical score-independent set identity, review-scoped quiet CAS, hidden candidates remaining eligible, and no repeat wake for reviewed members. |
 | Pluggability | External providers implement `external event → agent_event.v1 → InboxStore`. Capability providers do not implement an Attention interface at all: they register through Hermes native tools/MCP. New internal owners require an explicit product/schema change rather than an untested generic hook. | A generic fake provider reaches AOS without changing scoring; a newly registered MCP requires no Attention-core edit. |
 | Adaptability | Channels are replaceable mouths. Conversations remain their native context; only explicit arrange actions form Calendar/Task/Continuation state. Candidate `capability_hints` are broad optional domains, never tool IDs or permissions. | Negative tests show QQ/mobile text is not ingested, and an event still wakes when its suggested MCP is absent. |
 | Portability | The runtime uses standard-library Python, a private SQLite file with owner-separated tables, generic setup/arrange/steward Skills, and one canonical Cron in normal Agent mode. Provider extensions are separate installable modules. | Blank-home installer test, Skill validation, upgrade test from legacy hook/no-agent Cron. |
@@ -58,14 +58,14 @@ compatibility fallback.
 
 | Owner | Writes | Attention may do |
 |---|---|---|
-| `InboxStore` | Idempotent external events, sanitization, coalesce/supersede, expiry, exact claims | Read due candidates and route exact claim/settlement back |
+| `InboxStore` | Idempotent external events, enforced bounds/sanitization, coalesce/supersede, expiry, exact claims | Read due candidates and route exact claim/settlement back |
 | `CalendarStore` | Explicit reminders and their context | Read due item as a direct trigger; never turn the note into final speech |
 | `ContinuationStore` | A causal intention deliberately deferred to a later stage/time | Read all due continuations and route exact claim |
 | `TaskStore` | Scheduled, standing, periodic tasks plus separate cycle history | Read meaningful task transitions; never run task maintenance inside AOS build |
-| `AttentionCoordinator` | No source rows | Build one deterministic bounded view, preserve full eligible membership in `set_id`, apply diversity, route exact claim |
+| `AttentionCoordinator` | No source-table SQL; cross-owner transaction orchestration through Store APIs | Build a deterministic view, preserve canonical full eligible identity, bound a separately identified review, and route exact lifecycle operations |
 | Provider adapter | Poll one external source and ACK only after canonical Inbox ingest | Nothing else |
 | Hermes native capability manager | Enabled toolsets, MCP servers, schemas, platform policy, execution | Remains fully authoritative |
-| Live foreground Agent | Current judgment, capability choice, action, speech/silence | May exact-claim one, or turn none into an exact full-set reviewed-quiet terminal; reports only canonical outcomes |
+| Live foreground Agent | Current judgment, capability choice, action, speech/silence | May exact-claim one, freshness-validate before action, or turn none into an exact bounded-review quiet terminal; reports only canonical outcomes |
 
 Sharing one SQLite file is a deployment convenience, not shared ownership.
 
@@ -75,6 +75,10 @@ Every forum/mail/form/sensor adapter maps provider vocabulary to the same
 safe event fields: stable provider and event IDs, event kind, compact payload,
 source references, subject/coalesce/follow-up keys, event and expiry times,
 bounded priority hint, and optional broad capability domains.
+
+The Store enforces payload depth/node/container/byte limits, reference and hint
+counts, and secret sanitization. This is a trust boundary, not only an adapter
+authoring recommendation.
 
 The ordering is strict:
 
@@ -135,7 +139,7 @@ AOS scoring, or the heartbeat.
 | Surface | Model-facing operations | Not exposed |
 |---|---|---|
 | `attention-arrange` | Arrange a reminder, continuation, or scheduled/standing/periodic task, update meaningful task state, and complete a periodic cycle from an explicit foreground intention | Raw chat capture, automatic intent mining, database tables |
-| `attention-steward` | Open one exact focus; close it honestly; defer it into one continuation; or review-quiet one exact full set | FIFO claim-next, lease renewal, source polling, coalesce, migration |
+| `attention-steward` | Open one exact focus; validate freshness; close it honestly; defer it into one continuation; or quiet one exact bounded review | FIFO claim-next, lease renewal, source polling, coalesce, migration |
 | Hermes native capability layer | Enabled core toolsets plus Hermes's own progressive `tool_search` / `tool_describe` / `tool_call` bridge for large MCP/plugin surfaces | An Attention-owned copy of all tools or a project whitelist |
 | Provider adapters | Nothing directly; their compact facts appear as Inbox-derived context | Transport commands, secrets, ACK controls, raw provider payloads |
 
@@ -146,8 +150,10 @@ other, and neither requires a new Attention tool family.
 ## 7. Wake and speech semantics
 
 The heartbeat script is a preflight, not an agent and not a delivery service.
-It polls adapters, runs task maintenance outside AOS, builds the direct/AOS
-packet, and ends with Hermes Cron's `wakeAgent` gate.
+It polls adapters, recovers expired source claims, runs task maintenance
+outside AOS, builds the direct/AOS packet, and ends with Hermes Cron's
+`wakeAgent` gate. Recovery happens before candidate building so a process crash
+cannot leave an owner’s only candidate permanently invisible.
 
 When true, native Cron starts its normal Agent with normal tools and current
 context. The Agent makes a fresh decision, acts if useful, then writes fresh
@@ -160,7 +166,9 @@ successful delivery, Hermes mirrors that fresh result into the matching native
 foreground session, so the next human reply retains causal context. This is a
 Cron/session configuration seam—not an Attention owner, Inbox event, transcript
 adapter, or project delivery implementation. Changing channels only requires
-rebinding the native origin.
+rebinding the native origin. Installation probes Hermes's actual
+`get_job/update_job` API and verifies persisted state after update; incompatible
+upstream versions fail visibly instead of passing on a fake interface.
 
 ## 8. Migration and forbidden regressions
 
@@ -177,6 +185,9 @@ Do not reintroduce:
 - a script that launches `hermes -z` or prints final owner speech;
 - direct delivery/projection code;
 - AOS mutation, task maintenance, FIFO fallback, or hidden second owner;
+- score/ranking order participating in set identity;
+- reviewed-quiet receipts for candidates whose full content was not shown;
+- expired claims remaining invisible until an unrelated claim attempt;
 - provider poll/ACK tools exposed to the model;
 - an Attention-owned tool registry or all-tools whitelist;
 - success claims without canonical receipt and visible end-state evidence.
