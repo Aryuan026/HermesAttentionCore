@@ -179,6 +179,9 @@ def command_path(name: str, *, bin_dir: Path | None = None) -> str:
 
 
 def initialize_store(hermes_home: Path, *, bin_dir: Path) -> None:
+    attention_dir = hermes_home / "attention"
+    attention_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    attention_dir.chmod(0o700)
     environment = dict(os.environ)
     environment["HERMES_HOME"] = str(hermes_home)
     environment["HERMES_ATTENTION_DB"] = str(

@@ -27,7 +27,7 @@
 - Moved cross-owner quiet/defer composition onto transaction-aware Store APIs
   and added a real Hermes Cron API probe for native session binding.
 - The previous portable checkpoint passed 41 tests. The current local suite
-  passes 51 and all three public Skills validate.
+  passes 52 and all three public Skills validate.
 - Added discrete `review_version` semantics, so a warning review cannot quiet
   an overdue presentation of the same task while score-only movement remains
   identity-neutral. Inbox identity/routing fields now reject overlength values,
@@ -37,3 +37,6 @@
   both when it changes before claim and when it becomes overdue after claim;
   neither path can write an acted receipt. Existing databases upgrade the new
   claim field idempotently without changing stable source/set identity.
+- Generic upgrades now tighten the installer-owned
+  `~/.hermes/attention` directory to 0700, including homes created by an older
+  release with a more permissive mode.

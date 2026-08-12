@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -42,6 +43,17 @@ class InstallerTest(unittest.TestCase):
                 "attention-steward", "attention-arrange", "attention-runtime-setup"
             ):
                 self.assertTrue((root / ".hermes" / "skills" / name / "SKILL.md").exists())
+
+    def test_upgrade_tightens_existing_attention_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            attention = root / ".hermes" / "attention"
+            attention.mkdir(parents=True)
+            attention.chmod(0o775)
+
+            self.install(root)
+
+            self.assertEqual(stat.S_IMODE(attention.stat().st_mode), 0o700)
 
     def test_legacy_transcript_hook_is_archived(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
