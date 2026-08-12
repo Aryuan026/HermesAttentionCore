@@ -178,7 +178,7 @@ class InboxStore(ClaimStore):
         connection.execute(
             """UPDATE agent_events
                   SET status = 'superseded', claim_token = '', claim_until = '',
-                      updated_at = ?
+                      claimed_review_version = '', updated_at = ?
                 WHERE event_id = ? AND status = 'claimed'""",
             (iso(now), row["event_id"]),
         )

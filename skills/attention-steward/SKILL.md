@@ -35,10 +35,13 @@ memory, Skills, native tools, and native MCP tools.
 
    ```bash
    hermes-attention focus open --source-kind <kind> \
-     --source-id <id> --source-version <version>
+     --source-id <id> --source-version <version> \
+     --review-version <review_version>
    ```
 
-   Stop if the current version cannot be claimed.
+   Stop and rebuild if either the source facts or the discrete meaning shown in
+   this review can no longer be claimed. The claimed review version stays with
+   the focus for its whole lease; it is not folded into source identity.
 4. **Find the smallest useful hand.** Infer a broad domain from the situation
    and its optional capability hints. For a large deferred MCP/plugin surface,
    use Hermes's native `tool_search`, `tool_describe`, and `tool_call` bridge;
@@ -53,8 +56,9 @@ memory, Skills, native tools, and native MCP tools.
      --claim-token <token>
    ```
 
-   If validation reports an expired or superseded source, stop and rebuild;
-   do not act from the stale fact. Then use the native tool or MCP directly.
+   If validation reports an expired, superseded, or semantically changed
+   source, stop and rebuild; do not act from the stale fact. Then use the
+   native tool or MCP directly.
    Only its canonical receipt or authoritative state proves completion.
 6. **Close the focus.** Record `acted`, `reported`, `quiet`, or the real
    `failed` outcome with a small result summary:

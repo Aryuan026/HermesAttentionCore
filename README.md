@@ -29,8 +29,9 @@ The central boundary is simple:
 - Actual abilities remain native Hermes tools/MCP/plugins. Attention carries
   only optional broad domain hints, never tool schemas or permissions.
 - A native Cron preflight wakes the normal foreground Agent. That Agent chooses
-  one exact source—or closes only the bounded review it actually saw—then
-  decides fresh action, speech, or silence.
+  one exact source plus the discrete meaning it actually saw—or closes only
+  the bounded review it actually considered—then decides fresh action, speech,
+  or silence.
 
 The full reproducible contract is in
 [architecture.md](skills/attention-steward/references/architecture.md).
@@ -56,7 +57,9 @@ candidates share one queue, provider priority remains a small 4% hint, and
 selection uses an exact claim. The full eligible queue has a stable identity;
 the smaller, fully displayed review has its own identity. A genuinely
 uninteresting review can be closed exactly as `reviewed-quiet` without signing
-off on hidden candidates. The result is a compact portable layer that can give
+off on hidden candidates. A selected focus also carries that review meaning
+through pre-action validation, so a warning cannot silently become overdue
+authority. The result is a compact portable layer that can give
 an otherwise blank Hermes installation useful initiative without forcing a
 new persona, memory system, conversation channel, or tool stack on it.
 

@@ -102,6 +102,7 @@ class RuntimeDatabase:
                     claim_token TEXT NOT NULL DEFAULT '',
                     claim_generation INTEGER NOT NULL DEFAULT 0,
                     claim_until TEXT NOT NULL DEFAULT '',
+                    claimed_review_version TEXT NOT NULL DEFAULT '',
                     outcome TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
@@ -124,6 +125,7 @@ class RuntimeDatabase:
                     claim_token TEXT NOT NULL DEFAULT '',
                     claim_generation INTEGER NOT NULL DEFAULT 0,
                     claim_until TEXT NOT NULL DEFAULT '',
+                    claimed_review_version TEXT NOT NULL DEFAULT '',
                     outcome TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
@@ -142,6 +144,7 @@ class RuntimeDatabase:
                     claim_token TEXT NOT NULL DEFAULT '',
                     claim_generation INTEGER NOT NULL DEFAULT 0,
                     claim_until TEXT NOT NULL DEFAULT '',
+                    claimed_review_version TEXT NOT NULL DEFAULT '',
                     outcome TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
@@ -171,6 +174,7 @@ class RuntimeDatabase:
                     claim_token TEXT NOT NULL DEFAULT '',
                     claim_generation INTEGER NOT NULL DEFAULT 0,
                     claim_until TEXT NOT NULL DEFAULT '',
+                    claimed_review_version TEXT NOT NULL DEFAULT '',
                     semantic_changed_at TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
@@ -208,6 +212,21 @@ class RuntimeDatabase:
                 );
                 """
             )
+            for table in (
+                "agent_events",
+                "agent_continuations",
+                "calendar_items",
+                "hermes_tasks",
+            ):
+                columns = {
+                    row["name"]
+                    for row in connection.execute(f"PRAGMA table_info({table})")
+                }
+                if "claimed_review_version" not in columns:
+                    connection.execute(
+                        f"ALTER TABLE {table} ADD COLUMN "
+                        "claimed_review_version TEXT NOT NULL DEFAULT ''"
+                    )
 
     def receipts(self) -> list[dict[str, Any]]:
         with self.connect() as connection:

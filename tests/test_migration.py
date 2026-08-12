@@ -7,10 +7,39 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
+from hermes_attention.db import RuntimeDatabase
 from hermes_attention.runtime import open_runtime
 
 
 class MigrationTest(unittest.TestCase):
+    def test_initialize_adds_claimed_review_version_to_existing_owner_tables(self) -> None:
+        owner_tables = (
+            "agent_events",
+            "agent_continuations",
+            "calendar_items",
+            "hermes_tasks",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "attention.sqlite3"
+            database = RuntimeDatabase(path)
+            database.initialize()
+            with database.connect() as connection:
+                for table in owner_tables:
+                    connection.execute(
+                        f"ALTER TABLE {table} DROP COLUMN claimed_review_version"
+                    )
+
+            database.initialize()
+
+            with database.connect() as connection:
+                for table in owner_tables:
+                    column = {
+                        row["name"]: row
+                        for row in connection.execute(f"PRAGMA table_info({table})")
+                    }["claimed_review_version"]
+                    self.assertEqual(column["notnull"], 1)
+                    self.assertEqual(column["dflt_value"], "''")
+
     def test_only_explicit_pending_continuation_migrates(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "attention.sqlite3"

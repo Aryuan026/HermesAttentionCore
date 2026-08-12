@@ -15,3 +15,10 @@
 New external facts use Inbox adapters. New abilities use Hermes native
 tools/MCP/plugins. New conversation channels connect to Hermes normally. A new
 internal source owner requires an explicit product and schema change.
+
+## Non-blocking portability hardening
+
+- Attach-mode installation already rejects an incompatible native Cron API
+  before job mutation. A later bind/update/persistence-verification failure can
+  still leave a newly created or edited heartbeat job behind; a future
+  installer pass should snapshot the old job and roll back that mutation.

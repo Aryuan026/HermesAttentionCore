@@ -31,7 +31,7 @@ class ClaimStore:
 
     def review_version(self, row: sqlite3.Row, now: datetime) -> str:
         """Return the discrete semantics presented for one review decision."""
-        return ""
+        return "source"
 
     def expired_claim_status(self, row: sqlite3.Row) -> str:
         return self.available_status
@@ -50,7 +50,8 @@ class ClaimStore:
         for row in rows:
             cursor = connection.execute(
                 f"""UPDATE {self.table}
-                       SET status = ?, claim_token = '', claim_until = '', updated_at = ?
+                       SET status = ?, claim_token = '', claim_until = '',
+                           claimed_review_version = '', updated_at = ?
                      WHERE {self.id_column} = ? AND status = 'claimed'
                        AND claim_until != '' AND claim_until <= ?""",
                 (
@@ -98,7 +99,8 @@ class ClaimStore:
         if claim_until is not None and claim_until <= now:
             connection.execute(
                 f"""UPDATE {self.table}
-                       SET status = ?, claim_token = '', claim_until = '', updated_at = ?
+                       SET status = ?, claim_token = '', claim_until = '',
+                           claimed_review_version = '', updated_at = ?
                      WHERE {self.id_column} = ? AND claim_token = ?""",
                 (
                     self.expired_claim_status(row),
@@ -112,6 +114,20 @@ class ClaimStore:
         if blocked:
             self.invalidate_blocked_claim_in_tx(connection, row, now)
             return None, blocked
+        if self.review_version(row, now) != str(row["claimed_review_version"]):
+            connection.execute(
+                f"""UPDATE {self.table}
+                       SET status = ?, claim_token = '', claim_until = '',
+                           claimed_review_version = '', updated_at = ?
+                     WHERE {self.id_column} = ? AND claim_token = ?""",
+                (
+                    self.expired_claim_status(row),
+                    iso(now),
+                    self.row_id(row),
+                    claim_token,
+                ),
+            )
+            return None, "semantic_changed"
         return row, None
 
     def validate_claim(
@@ -132,6 +148,7 @@ class ClaimStore:
             "source_kind": self.source_kind,
             "source_id": self.row_id(row),
             "source_version": self.source_version(row),
+            "review_version": str(row["claimed_review_version"]),
             "claim_generation": int(row["claim_generation"]),
             "claim_until": str(row["claim_until"]),
         }
@@ -192,7 +209,8 @@ class ClaimStore:
         connection.execute(
             f"""UPDATE {self.table}
                    SET status = ?, outcome = ?, claim_token = '',
-                       claim_generation = ?, claim_until = '', updated_at = ?
+                       claim_generation = ?, claim_until = '',
+                       claimed_review_version = '', updated_at = ?
                  WHERE {self.id_column} = ?""",
             (
                 self.settlement_status(row, outcome),
@@ -209,6 +227,7 @@ class ClaimStore:
         self,
         source_id: str,
         source_version: str,
+        review_version: str,
         *,
         now: datetime | None = None,
         lease_seconds: int = 300,
@@ -234,6 +253,9 @@ class ClaimStore:
             if not self.is_due(row, current):
                 connection.rollback()
                 return {"claimed": False, "reason": "not_due"}
+            if self.review_version(row, current) != review_version:
+                connection.rollback()
+                return {"claimed": False, "reason": "semantic_changed"}
             generation = int(row["claim_generation"]) + 1
             token = f"claim_{secrets.token_urlsafe(24)}"
             claim_until = iso(current + timedelta(seconds=max(30, lease_seconds)))
@@ -241,10 +263,18 @@ class ClaimStore:
                 f"""
                 UPDATE {self.table}
                    SET status = 'claimed', claim_token = ?, claim_generation = ?,
-                       claim_until = ?, updated_at = ?
+                       claim_until = ?, claimed_review_version = ?, updated_at = ?
                  WHERE {self.id_column} = ? AND status = ?
                 """,
-                (token, generation, claim_until, iso(current), source_id, self.available_status),
+                (
+                    token,
+                    generation,
+                    claim_until,
+                    review_version,
+                    iso(current),
+                    source_id,
+                    self.available_status,
+                ),
             )
             if cursor.rowcount != 1:
                 connection.rollback()
@@ -254,6 +284,7 @@ class ClaimStore:
             "claimed": True,
             "source_id": source_id,
             "source_version": source_version,
+            "review_version": review_version,
             "claim_token": token,
             "claim_generation": generation,
             "claim_until": claim_until,

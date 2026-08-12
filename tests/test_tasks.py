@@ -37,7 +37,8 @@ class TaskStoreTest(unittest.TestCase):
         )
         warning = self.stores.attention.build(now=self.now)["opportunities"][0]
         claim = self.stores.attention.claim_exact(
-            "ongoing", warning["source_id"], warning["source_version"], now=self.now
+            "ongoing", warning["source_id"], warning["source_version"],
+            warning["review_version"], now=self.now
         )
         self.stores.attention.settle(
             "ongoing", claim["claim_token"], "failed", result={"error": "source unavailable"}, now=self.now
@@ -52,7 +53,8 @@ class TaskStoreTest(unittest.TestCase):
         )
         candidate = self.stores.attention.build(now=self.now)["opportunities"][0]
         claim = self.stores.attention.claim_exact(
-            "ongoing", candidate["source_id"], candidate["source_version"], now=self.now
+            "ongoing", candidate["source_id"], candidate["source_version"],
+            candidate["review_version"], now=self.now
         )
         self.stores.attention.settle("ongoing", claim["claim_token"], "quiet", now=self.now)
         self.assertEqual(self.stores.attention.build(now=self.now)["eligible_count"], 0)
@@ -66,7 +68,8 @@ class TaskStoreTest(unittest.TestCase):
         self.stores.tasks.create(kind="standing", title="维护知识库", now=self.now)
         candidate = self.stores.attention.build(now=self.now)["opportunities"][0]
         claim = self.stores.attention.claim_exact(
-            "ongoing", candidate["source_id"], candidate["source_version"], now=self.now
+            "ongoing", candidate["source_id"], candidate["source_version"],
+            candidate["review_version"], now=self.now
         )
         with patch.object(
             self.stores.tasks,
@@ -95,7 +98,8 @@ class TaskStoreTest(unittest.TestCase):
         )
         first = self.stores.attention.build(now=self.now)["opportunities"][0]
         claim = self.stores.attention.claim_exact(
-            "ongoing", first["source_id"], first["source_version"], now=self.now
+            "ongoing", first["source_id"], first["source_version"],
+            first["review_version"], now=self.now
         )
         self.stores.attention.settle("ongoing", claim["claim_token"], "quiet", now=self.now)
         changed_at = self.now + timedelta(hours=1)
@@ -107,7 +111,8 @@ class TaskStoreTest(unittest.TestCase):
         changed = self.stores.attention.build(now=changed_at)["opportunities"][0]
         self.assertEqual(changed["context"]["attention_reason"], "blocked")
         claim = self.stores.attention.claim_exact(
-            "ongoing", changed["source_id"], changed["source_version"], now=changed_at
+            "ongoing", changed["source_id"], changed["source_version"],
+            changed["review_version"], now=changed_at
         )
         self.stores.attention.settle("ongoing", claim["claim_token"], "quiet", now=changed_at)
         self.assertEqual(self.stores.attention.build(now=changed_at)["eligible_count"], 0)

@@ -45,7 +45,7 @@ source kind, and no project-owned delivery layer.
 | Required quality | Concrete implementation | Acceptance proof |
 |---|---|---|
 | Tool consolidation | The Agent sees one human-shaped loop: notice → judge → open one focus or close one exact review → find one hand → validate → act/observe → close → speak/silence. Poll, ACK, coalesce, leases, generations, and owner tables stay behind adapters/stores. | The wake Skill exposes `focus open/validate/close/defer/quiet-set`, not a bag of polling and database commands. |
-| Human-like attention and decisions | Calendar direct lane handles true due reminders. Other owners merge into one AOS. Ranking uses urgency 34%, owner impact 25%, continuity 18%, freshness 11%, aging 8%, and provider priority only 4%; provider and subject diversity prevent one feed dominating. Full eligible membership and bounded fully shown review membership have separate identities. Review identity also binds discrete presented semantics such as warning/overdue, never continuous scores. The model may exact-claim one, or close only the exact review it actually considered. | Tests assert weights, diversity, direct lane, exact claim, canonical score-independent set identity, warning→overdue review rejection, review-scoped quiet CAS, hidden candidates remaining eligible, and no repeat wake for reviewed members. |
+| Human-like attention and decisions | Calendar direct lane handles true due reminders. Other owners merge into one AOS. Ranking uses urgency 34%, owner impact 25%, continuity 18%, freshness 11%, aging 8%, and provider priority only 4%; provider and subject diversity prevent one feed dominating. Full eligible membership and bounded fully shown review membership have separate identities. Review identity also binds discrete presented semantics such as warning/overdue, never continuous scores. The model may exact-claim one presented source/meaning, or close only the exact review it actually considered. | Tests assert weights, diversity, direct lane, exact claim, canonical score-independent set identity, warning→overdue rejection before claim and before action, review-scoped quiet CAS, hidden candidates remaining eligible, and no repeat wake for reviewed members. |
 | Pluggability | External providers implement `external event → agent_event.v1 → InboxStore`. Capability providers do not implement an Attention interface at all: they register through Hermes native tools/MCP. New internal owners require an explicit product/schema change rather than an untested generic hook. | A generic fake provider reaches AOS without changing scoring; a newly registered MCP requires no Attention-core edit. |
 | Adaptability | Channels are replaceable mouths. Conversations remain their native context; only explicit arrange actions form Calendar/Task/Continuation state. Candidate `capability_hints` are broad optional domains, never tool IDs or permissions. | Negative tests show QQ/mobile text is not ingested, and an event still wakes when its suggested MCP is absent. |
 | Portability | The runtime uses standard-library Python, a private SQLite file with owner-separated tables, generic setup/arrange/steward Skills, and one canonical Cron in normal Agent mode. Provider extensions are separate installable modules. | Blank-home installer test, Skill validation, upgrade test from legacy hook/no-agent Cron. |
@@ -65,7 +65,7 @@ compatibility fallback.
 | `AttentionCoordinator` | No source-table SQL; cross-owner transaction orchestration through Store APIs | Build a deterministic view, preserve canonical full eligible identity, bound a separately identified review, and route exact lifecycle operations |
 | Provider adapter | Poll one external source and ACK only after canonical Inbox ingest | Nothing else |
 | Hermes native capability manager | Enabled toolsets, MCP servers, schemas, platform policy, execution | Remains fully authoritative |
-| Live foreground Agent | Current judgment, capability choice, action, speech/silence | May exact-claim one, freshness-validate before action, or turn none into an exact bounded-review quiet terminal; reports only canonical outcomes |
+| Live foreground Agent | Current judgment, capability choice, action, speech/silence | May exact-claim one source plus its presented review version, freshness/semantics-validate before action, or turn none into an exact bounded-review quiet terminal; reports only canonical outcomes |
 
 Sharing one SQLite file is a deployment convenience, not shared ownership.
 
@@ -161,6 +161,11 @@ When true, native Cron starts its normal Agent with normal tools and current
 context. The Agent makes a fresh decision, acts if useful, then writes fresh
 speech—or deliberately stays silent. Stored reminder text, provider text,
 prior replies, and script stdout never become an alarm-style final message.
+Opening a selected focus compares the immutable source version and the bounded
+review's discrete `review_version`, then stores both meanings with the claim.
+Validation and terminal settlement compare them again. A warning-phase decision
+cannot cross into overdue execution even though the underlying task source
+version—and therefore stable set identity—has not changed.
 
 For a conversational heartbeat, the deployment may opt into Hermes's native
 `attach_to_session` behavior and bind the job to one channel origin. After a
@@ -191,6 +196,7 @@ Do not reintroduce:
 - score/ranking order participating in set identity;
 - continuously changing scores participating in review identity;
 - quieting a new task phase from an older review version;
+- claiming or acting on a new task phase from an older review version;
 - reviewed-quiet receipts for candidates whose full content was not shown;
 - expired claims remaining invisible until an unrelated claim attempt;
 - provider poll/ACK tools exposed to the model;

@@ -15,6 +15,9 @@ work.
   FIFO fallback.
 - Review identity includes discrete presented semantics such as a task's
   `attention_reason`, never continuously changing scores or freshness.
+- A selected focus must exact-claim both `source_version` and `review_version`.
+  Persist the latter through validate/settle/defer; never let an older task
+  phase authorize a side effect, and never fold it into source identity.
 - Recover expired claims before build. A claimed Inbox predecessor superseded
   by newer coalesced state must fail freshness validation before side effects.
 - Cron wakes one normal foreground Agent. Do not launch a nested Agent or turn

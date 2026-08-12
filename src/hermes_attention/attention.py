@@ -63,7 +63,7 @@ class InboxCandidates:
                 source_kind="provider_event",
                 source_id=row["event_id"],
                 source_version=row["source_version"],
-                review_version="",
+                review_version=self.store.review_version(row, now),
                 title=row["title"],
                 summary=_compact_summary(row["compact_payload"]),
                 event_at=parse_time(row["event_at"]) or now,
@@ -93,7 +93,7 @@ class ContinuationCandidates:
                 source_kind="continuation",
                 source_id=row["continuation_id"],
                 source_version=row["source_version"],
-                review_version="",
+                review_version=self.store.review_version(row, now),
                 title=row["goal"],
                 summary=row["stage"],
                 event_at=parse_time(row["due_at"]) or now,
@@ -201,6 +201,7 @@ class AttentionCoordinator:
                     "source_kind": "calendar",
                     "source_id": row["item_id"],
                     "source_version": row["source_version"],
+                    "review_version": self.calendar.review_version(row, current),
                     "reason": "schedule_due",
                     "title": row["title"],
                     "context_note": row["context_note"],
@@ -332,13 +333,16 @@ class AttentionCoordinator:
         source_kind: str,
         source_id: str,
         source_version: str,
+        review_version: str,
         *,
         now: datetime | None = None,
     ) -> dict[str, Any]:
         owner = self._owners.get(source_kind)
         if owner is None:
             return {"claimed": False, "reason": "unknown_source_owner"}
-        result = owner.claim_exact(source_id, source_version, now=now)
+        result = owner.claim_exact(
+            source_id, source_version, review_version, now=now
+        )
         if result.get("claimed"):
             result["source_kind"] = source_kind
         return result

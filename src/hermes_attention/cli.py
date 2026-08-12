@@ -98,6 +98,7 @@ def parser() -> argparse.ArgumentParser:
     focus_open.add_argument("--source-kind", required=True)
     focus_open.add_argument("--source-id", required=True)
     focus_open.add_argument("--source-version", required=True)
+    focus_open.add_argument("--review-version", required=True)
     focus_open.add_argument("--now", default="")
 
     focus_close = focus_sub.add_parser("close")
@@ -198,6 +199,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "focus" and args.focus_command == "open":
         result = stores.attention.claim_exact(
             args.source_kind, args.source_id, args.source_version,
+            args.review_version,
             now=optional_time(args.now),
         )
         print_json(result)

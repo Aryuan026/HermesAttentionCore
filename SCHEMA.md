@@ -18,6 +18,13 @@ unless a one-shot scheduled task reaches its terminal state. Before every AOS
 build, heartbeat maintenance returns expired claims to the same owner's
 available status. A claimed Inbox predecessor that acquired `superseded_by`
 instead becomes `superseded` and cannot settle as a canonical success.
+Every selected claim also persists `claimed_review_version`. Focus open
+compares both immutable source version and discrete presented meaning;
+validate, settle, and defer compare that same claimed meaning again. A task
+claimed as `warning` therefore cannot act or settle after becoming `overdue`
+without a fresh review. Existing in-flight rows upgraded from a schema without
+this field fail closed on their next validate, settle, or defer; normal lease
+recovery also returns them to their available owner state.
 
 `attention_opportunity_set.v1` is a deterministic read-only candidate view.
 Its `eligible_membership` lists every current candidate; `set_id` hashes that
@@ -27,10 +34,13 @@ candidates whose full content is present in `opportunities`, and `review_id`
 identifies that exact review scope. Each review member includes a
 `review_version`: for Tasks it binds the discrete presented
 `attention_reason`; current owners without extra time-varying presentation
-semantics leave it empty because `source_version` already binds their facts.
+semantics use the stable marker `source` because `source_version` already binds
+their facts.
 Dynamic scores, freshness, aging, and due proximity do not enter any identity.
 Reviewed-quiet settlement may close only `review_membership` with unchanged
-review versions. Candidate capability hints contain broad domains only.
+review versions. The selected-focus lifecycle inherits the same review version
+without adding it to `source_version` or score-independent `set_id`. Candidate
+capability hints contain broad domains only.
 Tool definitions, permissions, MCP configuration, action receipts, and
 conversation routing are not part of the AOS schema.
 

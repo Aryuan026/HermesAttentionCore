@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
+from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
+from hermes_attention.cli import main as cli_main
 from hermes_attention.inbox import AgentEvent
 from hermes_attention.runtime import heartbeat, open_runtime, render_cron_preflight
 
@@ -107,11 +111,13 @@ class AttentionRuntimeTest(unittest.TestCase):
         self.stores.inbox.ingest(self.event(), now=self.now)
         candidate = self.stores.attention.build(now=self.now)["opportunities"][0]
         wrong = self.stores.attention.claim_exact(
-            candidate["source_kind"], candidate["source_id"], "wrong", now=self.now
+            candidate["source_kind"], candidate["source_id"], "wrong",
+            candidate["review_version"], now=self.now
         )
         self.assertEqual(wrong["reason"], "source_version_changed")
         claim = self.stores.attention.claim_exact(
-            candidate["source_kind"], candidate["source_id"], candidate["source_version"], now=self.now
+            candidate["source_kind"], candidate["source_id"],
+            candidate["source_version"], candidate["review_version"], now=self.now
         )
         self.assertTrue(claim["claimed"])
         settled = self.stores.attention.settle(
@@ -119,6 +125,34 @@ class AttentionRuntimeTest(unittest.TestCase):
             result={"receipt": "action-1"}, now=self.now,
         )
         self.assertTrue(settled["settled"])
+
+    def test_focus_open_cli_carries_review_version_into_claim(self) -> None:
+        self.stores.inbox.ingest(self.event(), now=self.now)
+        candidate = self.stores.attention.build(now=self.now)["opportunities"][0]
+        output = StringIO()
+        with patch.dict(
+            "os.environ", {"HERMES_ATTENTION_DB": str(self.path)}, clear=False
+        ), redirect_stdout(output):
+            status = cli_main(
+                [
+                    "focus",
+                    "open",
+                    "--source-kind",
+                    candidate["source_kind"],
+                    "--source-id",
+                    candidate["source_id"],
+                    "--source-version",
+                    candidate["source_version"],
+                    "--review-version",
+                    candidate["review_version"],
+                    "--now",
+                    self.now.isoformat(),
+                ]
+            )
+        result = json.loads(output.getvalue())
+        self.assertEqual(status, 0)
+        self.assertTrue(result["claimed"])
+        self.assertEqual(result["review_version"], candidate["review_version"])
 
     def test_provider_and_subject_diversity_cap_prompt_not_full_membership(self) -> None:
         for number in range(1, 6):
@@ -211,6 +245,118 @@ class AttentionRuntimeTest(unittest.TestCase):
             current["opportunities"][0]["review_version"], "overdue"
         )
 
+    def test_old_warning_review_cannot_open_focus_after_task_becomes_overdue(self) -> None:
+        due = self.now + timedelta(minutes=1)
+        self.stores.tasks.create(
+            kind="scheduled", title="一分钟后提交", due_at=due,
+            warn_hours=1, now=self.now,
+        )
+        warning = self.stores.attention.build(now=self.now)["opportunities"][0]
+
+        rejected = self.stores.attention.claim_exact(
+            "ongoing",
+            warning["source_id"],
+            warning["source_version"],
+            warning["review_version"],
+            now=due + timedelta(minutes=1),
+        )
+
+        self.assertFalse(rejected["claimed"])
+        self.assertEqual(rejected["reason"], "semantic_changed")
+        self.assertEqual(len(self.stores.database.receipts()), 0)
+        current = self.stores.attention.build(now=due + timedelta(minutes=1))
+        self.assertEqual(
+            current["opportunities"][0]["context"]["attention_reason"], "overdue"
+        )
+
+    def test_claimed_warning_focus_becomes_invalid_when_task_becomes_overdue(self) -> None:
+        due = self.now + timedelta(minutes=1)
+        self.stores.tasks.create(
+            kind="scheduled", title="一分钟后提交", due_at=due,
+            warn_hours=1, now=self.now,
+        )
+        warning = self.stores.attention.build(now=self.now)["opportunities"][0]
+        claim = self.stores.attention.claim_exact(
+            "ongoing",
+            warning["source_id"],
+            warning["source_version"],
+            warning["review_version"],
+            now=self.now,
+        )
+        self.assertTrue(claim["claimed"])
+        self.assertEqual(claim["review_version"], "warning")
+        with self.stores.database.connect() as connection:
+            stored = connection.execute(
+                "SELECT claimed_review_version FROM hermes_tasks WHERE task_id = ?",
+                (warning["source_id"],),
+            ).fetchone()["claimed_review_version"]
+        self.assertEqual(stored, "warning")
+
+        overdue_at = due + timedelta(minutes=1)
+        invalid = self.stores.attention.validate_claim(
+            "ongoing", claim["claim_token"], now=overdue_at
+        )
+        self.assertFalse(invalid["valid"])
+        self.assertEqual(invalid["reason"], "semantic_changed")
+        acted = self.stores.attention.settle(
+            "ongoing", claim["claim_token"], "acted", now=overdue_at
+        )
+        self.assertFalse(acted["settled"])
+        self.assertEqual(acted["reason"], "claim_not_current")
+        self.assertEqual(len(self.stores.database.receipts()), 0)
+        current = self.stores.attention.build(now=overdue_at)
+        self.assertEqual(
+            current["opportunities"][0]["context"]["attention_reason"], "overdue"
+        )
+
+    def test_direct_settle_rejects_claimed_warning_after_it_becomes_overdue(self) -> None:
+        due = self.now + timedelta(minutes=1)
+        self.stores.tasks.create(
+            kind="scheduled", title="一分钟后提交", due_at=due,
+            warn_hours=1, now=self.now,
+        )
+        warning = self.stores.attention.build(now=self.now)["opportunities"][0]
+        claim = self.stores.attention.claim_exact(
+            "ongoing", warning["source_id"], warning["source_version"],
+            warning["review_version"], now=self.now,
+        )
+
+        rejected = self.stores.attention.settle(
+            "ongoing", claim["claim_token"], "acted",
+            now=due + timedelta(minutes=1),
+        )
+
+        self.assertFalse(rejected["settled"])
+        self.assertEqual(rejected["reason"], "semantic_changed")
+        self.assertEqual(len(self.stores.database.receipts()), 0)
+
+    def test_direct_defer_rejects_claimed_warning_after_it_becomes_overdue(self) -> None:
+        due = self.now + timedelta(minutes=1)
+        self.stores.tasks.create(
+            kind="scheduled", title="一分钟后提交", due_at=due,
+            warn_hours=1, now=self.now,
+        )
+        warning = self.stores.attention.build(now=self.now)["opportunities"][0]
+        claim = self.stores.attention.claim_exact(
+            "ongoing", warning["source_id"], warning["source_version"],
+            warning["review_version"], now=self.now,
+        )
+        overdue_at = due + timedelta(minutes=1)
+
+        rejected = self.stores.attention.defer(
+            "ongoing", claim["claim_token"], goal="以后再做", stage="等待重审",
+            due_at=overdue_at + timedelta(hours=1), now=overdue_at,
+        )
+
+        self.assertFalse(rejected["deferred"])
+        self.assertEqual(rejected["reason"], "semantic_changed")
+        self.assertEqual(len(self.stores.database.receipts()), 0)
+        with self.stores.database.connect() as connection:
+            count = connection.execute(
+                "SELECT COUNT(*) AS n FROM agent_continuations"
+            ).fetchone()["n"]
+        self.assertEqual(count, 0)
+
     def test_quiet_set_rolls_back_every_owner_when_one_owner_hook_fails(self) -> None:
         continuation = self.stores.continuations.create(
             goal="继续一项跨 owner 工作",
@@ -277,6 +423,7 @@ class AttentionRuntimeTest(unittest.TestCase):
             "provider_event",
             candidate["source_id"],
             candidate["source_version"],
+            candidate["review_version"],
             now=self.now,
         )
         self.assertTrue(claim["claimed"])
@@ -301,6 +448,7 @@ class AttentionRuntimeTest(unittest.TestCase):
             "provider_event",
             candidate["source_id"],
             candidate["source_version"],
+            candidate["review_version"],
             now=self.now,
         )
         self.stores.inbox.ingest(second, now=self.now + timedelta(seconds=1))
@@ -339,7 +487,8 @@ class AttentionRuntimeTest(unittest.TestCase):
         self.stores.inbox.ingest(self.event(), now=self.now)
         candidate = self.stores.attention.build(now=self.now)["opportunities"][0]
         claim = self.stores.attention.claim_exact(
-            "provider_event", candidate["source_id"], candidate["source_version"], now=self.now
+            "provider_event", candidate["source_id"], candidate["source_version"],
+            candidate["review_version"], now=self.now
         )
         deferred = self.stores.attention.defer(
             "provider_event", claim["claim_token"], goal="下一批数据到齐后再看",
