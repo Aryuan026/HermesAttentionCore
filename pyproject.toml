@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hermes-attention-runtime"
+version = "0.1.0"
+description = "Bounded attention and continuation runtime for Hermes Agent"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+hermes-attention = "hermes_attention.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

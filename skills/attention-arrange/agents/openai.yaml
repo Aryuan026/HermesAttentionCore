@@ -1,0 +1,4 @@
+interface:
+  display_name: "Attention Arrange"
+  short_description: "Arrange explicit future intentions without ingesting chat"
+  default_prompt: "Use $attention-arrange to place this explicit future intention in its correct owner store."

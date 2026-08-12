@@ -1,0 +1,105 @@
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+
+class InstallerTest(unittest.TestCase):
+    @property
+    def repository(self) -> Path:
+        return Path(__file__).resolve().parents[1]
+
+    def install(self, root: Path, *extra: str, env=None):
+        return subprocess.run(
+            [
+                sys.executable,
+                str(self.repository / "scripts" / "install_hermes.py"),
+                "--source-root", str(self.repository),
+                "--install-root", str(root / "runtime"),
+                "--hermes-home", str(root / ".hermes"),
+                "--bin-dir", str(root / "bin"),
+                *extra,
+            ],
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    def test_blank_home_install_initializes_private_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = self.install(root)
+            self.assertIn("cron=not requested", result.stdout)
+            self.assertTrue((root / "bin" / "hermes-attention").exists())
+            self.assertTrue((root / ".hermes" / "attention" / "attention.sqlite3").exists())
+            for name in (
+                "attention-steward", "attention-arrange", "attention-runtime-setup"
+            ):
+                self.assertTrue((root / ".hermes" / "skills" / name / "SKILL.md").exists())
+
+    def test_legacy_transcript_hook_is_archived(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            active = root / ".hermes" / "hooks" / "attention-transcript"
+            active.mkdir(parents=True)
+            (active / "HOOK.yaml").write_text("active\n", encoding="utf-8")
+            archived = root / ".hermes" / "disabled-hooks" / "attention-transcript"
+            archived.mkdir(parents=True)
+            (archived / "HOOK.yaml").write_text("older\n", encoding="utf-8")
+            self.install(root)
+            self.assertFalse(active.exists())
+            self.assertEqual((archived / "HOOK.yaml").read_text(), "older\n")
+            self.assertTrue(archived.with_name("attention-transcript.1").exists())
+
+    def test_upgrade_removes_retired_owned_files_only(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.install(root)
+            stale_module = root / "runtime" / "src" / "hermes_attention" / "retired.py"
+            stale_module.write_text("retired\n", encoding="utf-8")
+            stale_skill = root / ".hermes" / "skills" / "attention-steward" / "retired.md"
+            stale_skill.write_text("retired\n", encoding="utf-8")
+            extension = root / ".hermes" / "skills" / "private-domain" / "SKILL.md"
+            extension.parent.mkdir(parents=True)
+            extension.write_text("extension\n", encoding="utf-8")
+            self.install(root)
+            self.assertFalse(stale_module.exists())
+            self.assertFalse(stale_skill.exists())
+            self.assertTrue(extension.exists())
+
+    def test_existing_no_agent_cron_is_edited_to_agent_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_bin = root / "fake-bin"
+            fake_bin.mkdir()
+            log = root / "hermes.log"
+            hermes = fake_bin / "hermes"
+            hermes.write_text(
+                "#!/bin/sh\n"
+                "if [ \"$1 $2\" = \"cron list\" ]; then\n"
+                "  printf '  4336e0f611c8 [active]\\n    Name:      hermes-attention-heartbeat\\n'\n"
+                "  exit 0\n"
+                "fi\n"
+                f"printf '%s\\n' \"$*\" >> {log}\n",
+                encoding="utf-8",
+            )
+            hermes.chmod(0o755)
+            environment = dict(os.environ)
+            environment["PATH"] = f"{fake_bin}:{environment.get('PATH', '')}"
+            result = self.install(
+                root, "--install-cron", "--deliver", "mobile", env=environment
+            )
+            args = log.read_text(encoding="utf-8")
+            self.assertIn("cron=updated", result.stdout)
+            self.assertIn("--agent", args)
+            self.assertNotIn("--no-agent", args)
+            self.assertEqual(args.count("--skill attention-steward"), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

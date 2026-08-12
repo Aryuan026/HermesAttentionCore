@@ -1,0 +1,4 @@
+interface:
+  display_name: "Attention Steward"
+  short_description: "Run one live, channel-neutral attention wake"
+  default_prompt: "Use $attention-steward to judge this wake, open at most one focus, use only the needed native capability, and decide fresh speech or silence."

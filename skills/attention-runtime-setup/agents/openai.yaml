@@ -1,0 +1,4 @@
+interface:
+  display_name: "Attention Runtime Setup"
+  short_description: "Install and repair channel-neutral Hermes attention"
+  default_prompt: "Use $attention-runtime-setup to install or repair this portable attention runtime without taking over Hermes tools."
