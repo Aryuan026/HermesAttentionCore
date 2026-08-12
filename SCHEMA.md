@@ -24,8 +24,13 @@ Its `eligible_membership` lists every current candidate; `set_id` hashes that
 membership after canonical sorting by source kind, ID, and version, never by
 dynamic score or display order. `review_membership` contains only the bounded
 candidates whose full content is present in `opportunities`, and `review_id`
-identifies that exact review scope. Reviewed-quiet settlement may close only
-`review_membership`. Candidate capability hints contain broad domains only.
+identifies that exact review scope. Each review member includes a
+`review_version`: for Tasks it binds the discrete presented
+`attention_reason`; current owners without extra time-varying presentation
+semantics leave it empty because `source_version` already binds their facts.
+Dynamic scores, freshness, aging, and due proximity do not enter any identity.
+Reviewed-quiet settlement may close only `review_membership` with unchanged
+review versions. Candidate capability hints contain broad domains only.
 Tool definitions, permissions, MCP configuration, action receipts, and
 conversation routing are not part of the AOS schema.
 
@@ -34,6 +39,11 @@ Each owner store supplies transaction-aware freeze, freshness validation, and
 settlement hooks; `ContinuationStore` supplies transactional creation for a
 defer. Sharing one database enables atomic composition without transferring
 table ownership to Attention.
+
+Inbox provider IDs, provider event IDs, event kinds, subject refs, coalesce
+keys, and follow-up refs have explicit maximum lengths and reject overlength
+input. They are never truncated because they participate in identity or
+routing. Titles remain display fields and may be bounded.
 
 Legacy `opportunities` and `receipts` remain audit data. Migration moves only
 unambiguous pending continuations, archives pending channel/provider rows

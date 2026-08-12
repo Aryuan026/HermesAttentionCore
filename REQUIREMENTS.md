@@ -16,7 +16,9 @@
   hidden eligible candidates remain available for later review.
 - Full eligible membership has a canonical score-independent `set_id` for
   queue/CAS diagnostics. The bounded displayed membership has a separate
-  `review_id`; ranking changes cannot rewrite set identity.
+  `review_id`; ranking changes cannot rewrite set identity. Each review member
+  also binds discrete presented semantics such as `attention_reason`, while
+  continuous freshness, aging, due proximity, and score remain outside IDs.
 - Heartbeat maintenance recovers every expired source claim before AOS build.
   A claimed Inbox row superseded by a newer coalesced fact fails freshness
   validation and cannot receive a canonical success receipt.
@@ -31,6 +33,10 @@
 - The heartbeat script cannot be an Agent, sender, or final content generator.
 - External Inbox bounds and secret redaction are enforced by `InboxStore`, not
   merely promised by adapter documentation.
+- Stable Inbox identity and routing fields reject overlength input rather than
+  truncating distinct values into aliases. Display-only fields may be bounded.
+- An attach-to-session install probes the installed native Cron API before any
+  real heartbeat job is created or edited.
 
 ## Acceptance
 

@@ -34,6 +34,7 @@ class Candidate:
     source_kind: str
     source_id: str
     source_version: str
+    review_version: str
     title: str
     summary: str
     event_at: datetime
@@ -62,6 +63,7 @@ class InboxCandidates:
                 source_kind="provider_event",
                 source_id=row["event_id"],
                 source_version=row["source_version"],
+                review_version="",
                 title=row["title"],
                 summary=_compact_summary(row["compact_payload"]),
                 event_at=parse_time(row["event_at"]) or now,
@@ -91,6 +93,7 @@ class ContinuationCandidates:
                 source_kind="continuation",
                 source_id=row["continuation_id"],
                 source_version=row["source_version"],
+                review_version="",
                 title=row["goal"],
                 summary=row["stage"],
                 event_at=parse_time(row["due_at"]) or now,
@@ -125,6 +128,7 @@ class TaskCandidates:
                 source_kind="ongoing",
                 source_id=row["task_id"],
                 source_version=row["source_version"],
+                review_version=row["review_version"],
                 title=row["title"],
                 summary=row["summary"],
                 event_at=parse_time(row["semantic_changed_at"]) or now,
@@ -215,8 +219,8 @@ class AttentionCoordinator:
         ranked.sort(key=lambda item: (-item["score"], item["event_at"], item["opportunity_id"]))
         review_limit = max(1, limit)
         selected = self._diverse(ranked, review_limit)
-        eligible_membership = self._membership(ranked)
-        review_membership = self._membership(selected)
+        eligible_membership = self._membership(ranked, include_review_version=False)
+        review_membership = self._membership(selected, include_review_version=True)
         return {
             "schema": SCHEMA,
             "set_id": self._membership_id("aos", eligible_membership),
@@ -233,7 +237,11 @@ class AttentionCoordinator:
         }
 
     @staticmethod
-    def _membership(items: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
+    def _membership(
+        items: Sequence[Mapping[str, Any]],
+        *,
+        include_review_version: bool,
+    ) -> list[dict[str, str]]:
         return sorted(
             (
                 {
@@ -241,6 +249,11 @@ class AttentionCoordinator:
                     "source_kind": str(item["source_kind"]),
                     "source_id": str(item["source_id"]),
                     "source_version": str(item["source_version"]),
+                    **(
+                        {"review_version": str(item["review_version"])}
+                        if include_review_version
+                        else {}
+                    ),
                 }
                 for item in items
             ),
@@ -254,7 +267,14 @@ class AttentionCoordinator:
     @staticmethod
     def _membership_id(prefix: str, members: Sequence[Mapping[str, str]]) -> str:
         identity = [
-            f"{member['source_kind']}:{member['source_id']}:{member['source_version']}"
+            ":".join(
+                (
+                    member["source_kind"],
+                    member["source_id"],
+                    member["source_version"],
+                    member.get("review_version", ""),
+                )
+            )
             for member in members
         ]
         return stable_id(prefix, *(identity or ["empty"]))
@@ -275,6 +295,7 @@ class AttentionCoordinator:
             "source_kind": candidate.source_kind,
             "source_id": candidate.source_id,
             "source_version": candidate.source_version,
+            "review_version": candidate.review_version,
             "title": candidate.title,
             "summary": candidate.summary,
             "event_at": iso(candidate.event_at),
@@ -382,6 +403,7 @@ class AttentionCoordinator:
                     connection,
                     str(member.get("source_id") or ""),
                     str(member.get("source_version") or ""),
+                    str(member.get("review_version") or ""),
                     current,
                 )
                 if row is None:

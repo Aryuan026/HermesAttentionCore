@@ -29,6 +29,10 @@ class ClaimStore:
     def row_id(self, row: sqlite3.Row) -> str:
         return str(row[self.id_column])
 
+    def review_version(self, row: sqlite3.Row, now: datetime) -> str:
+        """Return the discrete semantics presented for one review decision."""
+        return ""
+
     def expired_claim_status(self, row: sqlite3.Row) -> str:
         return self.available_status
 
@@ -137,6 +141,7 @@ class ClaimStore:
         connection: sqlite3.Connection,
         source_id: str,
         source_version: str,
+        review_version: str,
         now: datetime,
     ) -> tuple[sqlite3.Row | None, str | None]:
         row = connection.execute(
@@ -149,6 +154,8 @@ class ClaimStore:
             return None, "review_member_version_changed"
         if not self.is_due(row, now):
             return None, "review_member_not_due"
+        if self.review_version(row, now) != review_version:
+            return None, "review_member_semantic_changed"
         return row, None
 
     def settle_row_in_tx(

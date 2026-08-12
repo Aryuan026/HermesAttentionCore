@@ -45,7 +45,7 @@ source kind, and no project-owned delivery layer.
 | Required quality | Concrete implementation | Acceptance proof |
 |---|---|---|
 | Tool consolidation | The Agent sees one human-shaped loop: notice → judge → open one focus or close one exact review → find one hand → validate → act/observe → close → speak/silence. Poll, ACK, coalesce, leases, generations, and owner tables stay behind adapters/stores. | The wake Skill exposes `focus open/validate/close/defer/quiet-set`, not a bag of polling and database commands. |
-| Human-like attention and decisions | Calendar direct lane handles true due reminders. Other owners merge into one AOS. Ranking uses urgency 34%, owner impact 25%, continuity 18%, freshness 11%, aging 8%, and provider priority only 4%; provider and subject diversity prevent one feed dominating. Full eligible membership and bounded fully shown review membership have separate identities. The model may exact-claim one, or close only the exact review it actually considered. | Tests assert weights, diversity, direct lane, exact claim, canonical score-independent set identity, review-scoped quiet CAS, hidden candidates remaining eligible, and no repeat wake for reviewed members. |
+| Human-like attention and decisions | Calendar direct lane handles true due reminders. Other owners merge into one AOS. Ranking uses urgency 34%, owner impact 25%, continuity 18%, freshness 11%, aging 8%, and provider priority only 4%; provider and subject diversity prevent one feed dominating. Full eligible membership and bounded fully shown review membership have separate identities. Review identity also binds discrete presented semantics such as warning/overdue, never continuous scores. The model may exact-claim one, or close only the exact review it actually considered. | Tests assert weights, diversity, direct lane, exact claim, canonical score-independent set identity, warning→overdue review rejection, review-scoped quiet CAS, hidden candidates remaining eligible, and no repeat wake for reviewed members. |
 | Pluggability | External providers implement `external event → agent_event.v1 → InboxStore`. Capability providers do not implement an Attention interface at all: they register through Hermes native tools/MCP. New internal owners require an explicit product/schema change rather than an untested generic hook. | A generic fake provider reaches AOS without changing scoring; a newly registered MCP requires no Attention-core edit. |
 | Adaptability | Channels are replaceable mouths. Conversations remain their native context; only explicit arrange actions form Calendar/Task/Continuation state. Candidate `capability_hints` are broad optional domains, never tool IDs or permissions. | Negative tests show QQ/mobile text is not ingested, and an event still wakes when its suggested MCP is absent. |
 | Portability | The runtime uses standard-library Python, a private SQLite file with owner-separated tables, generic setup/arrange/steward Skills, and one canonical Cron in normal Agent mode. Provider extensions are separate installable modules. | Blank-home installer test, Skill validation, upgrade test from legacy hook/no-agent Cron. |
@@ -79,6 +79,8 @@ bounded priority hint, and optional broad capability domains.
 The Store enforces payload depth/node/container/byte limits, reference and hint
 counts, and secret sanitization. This is a trust boundary, not only an adapter
 authoring recommendation.
+Stable identity and routing fields reject overlength input; unlike display
+text, they are never truncated into possible aliases.
 
 The ordering is strict:
 
@@ -168,7 +170,8 @@ Cron/session configuration seam—not an Attention owner, Inbox event, transcrip
 adapter, or project delivery implementation. Changing channels only requires
 rebinding the native origin. Installation probes Hermes's actual
 `get_job/update_job` API and verifies persisted state after update; incompatible
-upstream versions fail visibly instead of passing on a fake interface.
+upstream versions fail visibly instead of passing on a fake interface. Attach
+mode runs the compatibility probe before any heartbeat job create/edit.
 
 ## 8. Migration and forbidden regressions
 
@@ -186,6 +189,8 @@ Do not reintroduce:
 - direct delivery/projection code;
 - AOS mutation, task maintenance, FIFO fallback, or hidden second owner;
 - score/ranking order participating in set identity;
+- continuously changing scores participating in review identity;
+- quieting a new task phase from an older review version;
 - reviewed-quiet receipts for candidates whose full content was not shown;
 - expired claims remaining invisible until an unrelated claim attempt;
 - provider poll/ACK tools exposed to the model;

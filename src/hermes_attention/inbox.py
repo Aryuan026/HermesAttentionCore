@@ -25,6 +25,28 @@ MAX_PAYLOAD_NODES = 256
 MAX_PAYLOAD_BYTES = 16_384
 MAX_SOURCE_REFS = 32
 MAX_CAPABILITY_HINTS = 16
+IDENTITY_LIMITS = {
+    "provider_id": 120,
+    "provider_event_id": 240,
+    "event_kind": 120,
+    "subject_ref": 240,
+    "coalesce_key": 240,
+    "followup_of": 240,
+}
+
+
+def _identity(value: Any, label: str, *, required: bool = False) -> str:
+    normalized = "" if value is None else str(value).strip()
+    if required and not normalized:
+        raise ValueError(f"{label} is required")
+    limit = IDENTITY_LIMITS[label]
+    if len(normalized) > limit:
+        raise ValueError(f"{label} exceeds {limit} characters")
+    return normalized
+
+
+def _title(value: Any) -> str:
+    return " ".join(str(value).split())[:240]
 
 
 def _safe_value(
@@ -109,14 +131,18 @@ class AgentEvent:
 
     @property
     def event_id(self) -> str:
-        return stable_id("event", self.provider_id, self.provider_event_id)
+        return stable_id(
+            "event",
+            _identity(self.provider_id, "provider_id", required=True),
+            _identity(self.provider_event_id, "provider_event_id", required=True),
+        )
 
     @property
     def source_version(self) -> str:
         return stable_id(
             "version",
-            self.event_kind,
-            self.title,
+            _identity(self.event_kind, "event_kind", required=True),
+            _title(self.title),
             canonical_json(_safe_payload(self.compact_payload)),
             iso(self.event_at),
         )
@@ -161,11 +187,15 @@ class InboxStore(ClaimStore):
         current = now or utc_now()
         priority = event.priority_hint if event.priority_hint in PRIORITIES else "normal"
         expires = event.expires_at or (event.event_at + timedelta(days=7))
-        provider_id = str(event.provider_id).strip()[:120]
-        provider_event_id = str(event.provider_event_id).strip()[:240]
-        event_kind = str(event.event_kind).strip()[:120]
-        if not provider_id or not provider_event_id or not event_kind:
-            raise ValueError("provider_id, provider_event_id, and event_kind are required")
+        provider_id = _identity(event.provider_id, "provider_id", required=True)
+        provider_event_id = _identity(
+            event.provider_event_id, "provider_event_id", required=True
+        )
+        event_kind = _identity(event.event_kind, "event_kind", required=True)
+        subject_ref = _identity(event.subject_ref, "subject_ref")
+        coalesce_key = _identity(event.coalesce_key, "coalesce_key")
+        followup_of = _identity(event.followup_of, "followup_of")
+        title = _title(event.title)
         safe_payload = _safe_payload(event.compact_payload)
         safe_refs = _safe_strings(
             event.source_refs,
@@ -183,7 +213,7 @@ class InboxStore(ClaimStore):
         source_version = stable_id(
             "version",
             event_kind,
-            event.title,
+            title,
             canonical_json(safe_payload),
             iso(event.event_at),
         )
@@ -196,7 +226,7 @@ class InboxStore(ClaimStore):
             if existing is not None:
                 connection.commit()
                 return {"inserted": False, "event_id": str(existing["event_id"])}
-            if event.coalesce_key:
+            if coalesce_key:
                 connection.execute(
                     """
                     UPDATE agent_events
@@ -206,7 +236,7 @@ class InboxStore(ClaimStore):
                      WHERE provider_id = ? AND coalesce_key = ?
                        AND status IN ('pending', 'claimed')
                     """,
-                    (event_id, iso(current), provider_id, event.coalesce_key[:240]),
+                    (event_id, iso(current), provider_id, coalesce_key),
                 )
             connection.execute(
                 """
@@ -220,10 +250,10 @@ class InboxStore(ClaimStore):
                 """,
                 (
                     event_id, provider_id, provider_event_id,
-                    source_version, event_kind, " ".join(event.title.split())[:240],
+                    source_version, event_kind, title,
                     canonical_json(safe_payload), canonical_json(safe_refs),
-                    canonical_json(safe_hints), event.subject_ref[:240],
-                    event.coalesce_key[:240], event.followup_of[:240], priority, iso(event.event_at),
+                    canonical_json(safe_hints), subject_ref,
+                    coalesce_key, followup_of, priority, iso(event.event_at),
                     iso(current), iso(expires), iso(current), iso(current),
                 ),
             )

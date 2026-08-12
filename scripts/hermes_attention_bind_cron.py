@@ -12,17 +12,17 @@ def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(
         description="Attach a Hermes Cron job to one native channel session."
     )
-    root.add_argument("--job-id", required=True)
-    root.add_argument("--platform", required=True)
-    root.add_argument("--chat-id", required=True)
+    root.add_argument("--probe-only", action="store_true")
+    root.add_argument("--job-id")
+    root.add_argument("--platform")
+    root.add_argument("--chat-id")
     root.add_argument("--chat-name")
     root.add_argument("--user-id")
     root.add_argument("--thread-id")
     return root
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = parser().parse_args(argv)
+def native_cron_api():
     try:
         jobs = importlib.import_module("cron.jobs")
     except (ImportError, ModuleNotFoundError) as exc:
@@ -47,6 +47,17 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(
             "Hermes native Cron API is incompatible: unexpected function signatures"
         )
+    return get_job, update_job
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    get_job, update_job = native_cron_api()
+    if args.probe_only:
+        print(json.dumps({"compatible": True}, sort_keys=True))
+        return 0
+    if not args.job_id or not args.platform or not args.chat_id:
+        raise SystemExit("--job-id, --platform, and --chat-id are required")
 
     if get_job(args.job_id) is None:
         raise SystemExit(f"Hermes Cron job does not exist: {args.job_id}")

@@ -139,7 +139,8 @@ wanted in the new mouth.
 The installer probes Hermes's installed native Cron read/update seam and
 verifies the persisted binding. If an upstream Hermes release moved that API,
 installation fails with a compatibility error instead of reporting a false
-success.
+success. The probe runs before the installer creates or edits the real
+heartbeat job.
 
 For a per-user-isolated group session, also pass the channel-native
 `--origin-user-id`; add `--origin-thread-id` when the conversation is scoped to

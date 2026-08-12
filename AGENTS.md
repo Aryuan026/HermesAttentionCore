@@ -13,9 +13,12 @@ work.
   claim; reviewed-quiet settles only the exact bounded `review_membership`
   whose full content was shown. `set_id` must never depend on score order. No
   FIFO fallback.
+- Review identity includes discrete presented semantics such as a task's
+  `attention_reason`, never continuously changing scores or freshness.
 - Recover expired claims before build. A claimed Inbox predecessor superseded
   by newer coalesced state must fail freshness validation before side effects.
 - Cron wakes one normal foreground Agent. Do not launch a nested Agent or turn
   script output into prewritten owner speech.
 - Keep secrets, runtime databases, logs, chat text, and receipts out of Git.
+- Inbox identity/routing fields are validated, never silently truncated.
 - New behavior needs both a legal positive path and a boundary/failure test.

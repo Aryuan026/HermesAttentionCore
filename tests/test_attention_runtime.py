@@ -40,6 +40,7 @@ class AttentionRuntimeTest(unittest.TestCase):
     def test_external_fact_enters_inbox_then_generic_provider_candidate(self) -> None:
         ingested = self.stores.inbox.ingest(self.event(), now=self.now)
         self.assertTrue(ingested["inserted"])
+        self.assertEqual(ingested["event_id"], self.event().event_id)
 
         built = self.stores.attention.build(now=self.now)
 
@@ -47,6 +48,7 @@ class AttentionRuntimeTest(unittest.TestCase):
         self.assertEqual(built["eligible_count"], 1)
         row = built["opportunities"][0]
         self.assertEqual(row["source_kind"], "provider_event")
+        self.assertEqual(row["source_version"], self.event().source_version)
         self.assertEqual(row["provider_id"], "lab-monitor")
         self.assertEqual(row["capability_hints"], ["leisure"])
         self.assertNotIn("tool", row)
@@ -126,6 +128,8 @@ class AttentionRuntimeTest(unittest.TestCase):
         self.assertEqual(built["prompt_count"], 2)
         self.assertEqual(len(built["eligible_membership"]), 5)
         self.assertEqual(len(built["review_membership"]), 2)
+        self.assertNotIn("review_version", built["eligible_membership"][0])
+        self.assertIn("review_version", built["review_membership"][0])
 
     def test_select_none_quiets_exact_review_set_and_does_not_rewake(self) -> None:
         self.stores.inbox.ingest(self.event(), now=self.now)
@@ -174,6 +178,38 @@ class AttentionRuntimeTest(unittest.TestCase):
         self.assertFalse(settled["settled"])
         self.assertEqual(settled["reason"], "review_changed")
         self.assertEqual(len(self.stores.database.receipts()), 0)
+
+    def test_warning_review_cannot_quiet_task_after_it_becomes_overdue(self) -> None:
+        due = self.now + timedelta(minutes=1)
+        created = self.stores.tasks.create(
+            kind="scheduled",
+            title="一分钟后提交",
+            due_at=due,
+            warn_hours=1,
+            now=self.now,
+        )
+        warning = self.stores.attention.build(now=self.now)
+        self.assertEqual(
+            warning["opportunities"][0]["context"]["attention_reason"], "warning"
+        )
+        self.assertEqual(
+            warning["opportunities"][0]["review_version"], "warning"
+        )
+        overdue_at = due + timedelta(minutes=1)
+        rejected = self.stores.attention.quiet_set(
+            warning["set_id"], warning["review_id"], now=overdue_at
+        )
+        self.assertFalse(rejected["settled"])
+        self.assertEqual(rejected["reason"], "review_changed")
+        self.assertEqual(len(self.stores.database.receipts()), 0)
+        current = self.stores.attention.build(now=overdue_at)
+        self.assertEqual(current["opportunities"][0]["source_id"], created["task_id"])
+        self.assertEqual(
+            current["opportunities"][0]["context"]["attention_reason"], "overdue"
+        )
+        self.assertEqual(
+            current["opportunities"][0]["review_version"], "overdue"
+        )
 
     def test_quiet_set_rolls_back_every_owner_when_one_owner_hook_fails(self) -> None:
         continuation = self.stores.continuations.create(
@@ -232,6 +268,7 @@ class AttentionRuntimeTest(unittest.TestCase):
             [item["source_kind"] for item in late["opportunities"]],
         )
         self.assertEqual(early["set_id"], late["set_id"])
+        self.assertNotEqual(early["review_id"], late["review_id"])
 
     def test_expired_claim_recovery_runs_before_heartbeat_build(self) -> None:
         self.stores.inbox.ingest(self.event(), now=self.now)

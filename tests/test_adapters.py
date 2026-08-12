@@ -113,6 +113,53 @@ class AdapterRegistryTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "too many keys"):
             self.stores.inbox.ingest(oversized, now=self.now)
 
+    def test_identity_fields_reject_overlength_instead_of_aliasing(self) -> None:
+        prefix = "x" * 240
+        for suffix in ("a", "b"):
+            event = AgentEvent(
+                provider_id="ai-forum",
+                provider_event_id=prefix + suffix,
+                event_kind="forum_thread_updated",
+                title="一条外部消息",
+                event_at=self.now,
+            )
+            with self.assertRaisesRegex(
+                ValueError, "provider_event_id exceeds 240 characters"
+            ):
+                self.stores.inbox.ingest(event, now=self.now)
+            with self.assertRaisesRegex(
+                ValueError, "provider_event_id exceeds 240 characters"
+            ):
+                _ = event.event_id
+        with self.stores.database.connect() as connection:
+            count = connection.execute(
+                "SELECT COUNT(*) AS count FROM agent_events"
+            ).fetchone()["count"]
+        self.assertEqual(count, 0)
+
+    def test_routing_identity_fields_are_never_silently_truncated(self) -> None:
+        base = AgentEvent(
+            provider_id="ai-forum",
+            provider_event_id="event-1",
+            event_kind="forum_thread_updated",
+            title="一条外部消息",
+            event_at=self.now,
+        )
+        cases = (
+            ("provider_id", "p" * 121, 120),
+            ("event_kind", "k" * 121, 120),
+            ("subject_ref", "s" * 241, 240),
+            ("coalesce_key", "c" * 241, 240),
+            ("followup_of", "f" * 241, 240),
+        )
+        for field, value, limit in cases:
+            event = AgentEvent(**{**base.__dict__, field: value})
+            with self.subTest(field=field):
+                with self.assertRaisesRegex(
+                    ValueError, rf"{field} exceeds {limit} characters"
+                ):
+                    self.stores.inbox.ingest(event, now=self.now)
+
     def test_broken_adapter_is_reported_without_blocking_another_owner(self) -> None:
         self.stores.calendar.schedule(
             title="检查实验结果", due_at=self.now, now=self.now

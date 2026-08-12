@@ -14,7 +14,7 @@ class InstallerTest(unittest.TestCase):
     def repository(self) -> Path:
         return Path(__file__).resolve().parents[1]
 
-    def install(self, root: Path, *extra: str, env=None):
+    def install(self, root: Path, *extra: str, env=None, check=True):
         return subprocess.run(
             [
                 sys.executable,
@@ -26,7 +26,7 @@ class InstallerTest(unittest.TestCase):
                 *extra,
             ],
             env=env,
-            check=True,
+            check=check,
             capture_output=True,
             text=True,
         )
@@ -181,6 +181,46 @@ class InstallerTest(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("get_job/update_job required", result.stderr)
+
+    def test_attach_probe_fails_before_any_cron_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_bin = root / "fake-bin"
+            fake_bin.mkdir()
+            cron_log = root / "cron-mutations.log"
+            hermes = fake_bin / "hermes"
+            hermes.write_text(
+                "#!/bin/sh\n"
+                f"printf '%s\\n' \"$*\" >> {cron_log}\n",
+                encoding="utf-8",
+            )
+            hermes.chmod(0o755)
+            agent = root / ".hermes" / "hermes-agent"
+            cron = agent / "cron"
+            cron.mkdir(parents=True)
+            (cron / "__init__.py").write_text("", encoding="utf-8")
+            (cron / "jobs.py").write_text(
+                "def update_job(job_id, updates):\n"
+                "    return {'id': job_id, **updates}\n",
+                encoding="utf-8",
+            )
+            venv_bin = agent / "venv" / "bin"
+            venv_bin.mkdir(parents=True)
+            os.symlink(sys.executable, venv_bin / "python")
+            environment = dict(os.environ)
+            environment["PATH"] = f"{fake_bin}:{environment.get('PATH', '')}"
+            result = self.install(
+                root,
+                "--install-cron", "--deliver", "mobile",
+                "--attach-to-session",
+                "--origin-platform", "mobile",
+                "--origin-chat-id", "chat-1",
+                env=environment,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("get_job/update_job required", result.stderr)
+            self.assertFalse(cron_log.exists())
 
 
 if __name__ == "__main__":

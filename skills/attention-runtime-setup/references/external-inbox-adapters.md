@@ -73,6 +73,11 @@ references. Adapters should still fetch small pages and emit compact facts so a
 rejected oversized event is visible as an adapter failure rather than silently
 truncated context.
 
+Stable identity/routing fields are stricter than display text: provider ID,
+provider event ID, event kind, subject ref, coalesce key, and follow-up ref are
+rejected when overlength. Never depend on truncation; two distinct upstream
+identities must remain distinct or fail visibly.
+
 If forum reply is a real capability, expose it separately with Hermes native
 MCP/tools. Attention may suggest the broad `communication` domain; Hermes still
 discovers the minimum enabled tool, executes it, verifies its canonical

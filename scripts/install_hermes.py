@@ -265,15 +265,8 @@ def bind_cron_session(
     user_id: str | None = None,
     thread_id: str | None = None,
 ) -> None:
-    source_root = hermes_home / "hermes-agent"
-    hermes_python = source_root / "venv" / "bin" / "python"
-    if not source_root.is_dir() or not hermes_python.exists():
-        raise SystemExit(
-            "Hermes source/venv is required for native Cron session binding"
-        )
     command = [
-        str(hermes_python),
-        str(install_root / "scripts" / "hermes_attention_bind_cron.py"),
+        *_cron_binding_helper(install_root, hermes_home),
         "--job-id", job_id,
         "--platform", platform,
         "--chat-id", chat_id,
@@ -285,6 +278,31 @@ def bind_cron_session(
     ):
         if value:
             command.extend((option, value))
+    _run_cron_binding_helper(command, hermes_home)
+
+
+def probe_cron_session(install_root: Path, hermes_home: Path) -> None:
+    _run_cron_binding_helper(
+        [*_cron_binding_helper(install_root, hermes_home), "--probe-only"],
+        hermes_home,
+    )
+
+
+def _cron_binding_helper(install_root: Path, hermes_home: Path) -> list[str]:
+    source_root = hermes_home / "hermes-agent"
+    hermes_python = source_root / "venv" / "bin" / "python"
+    if not source_root.is_dir() or not hermes_python.exists():
+        raise SystemExit(
+            "Hermes source/venv is required for native Cron session binding"
+        )
+    return [
+        str(hermes_python),
+        str(install_root / "scripts" / "hermes_attention_bind_cron.py"),
+    ]
+
+
+def _run_cron_binding_helper(command: list[str], hermes_home: Path) -> None:
+    source_root = hermes_home / "hermes-agent"
     environment = dict(os.environ)
     environment["HERMES_HOME"] = str(hermes_home)
     existing_pythonpath = environment.get("PYTHONPATH")
@@ -325,6 +343,8 @@ def main(argv: list[str] | None = None) -> int:
     cron_status = "not requested"
     continuity_status = "not requested"
     if args.install_cron:
+        if args.attach_to_session:
+            probe_cron_session(install_root, hermes_home)
         cron_status, job_id = install_cron(
             hermes_home,
             deliver=args.deliver,

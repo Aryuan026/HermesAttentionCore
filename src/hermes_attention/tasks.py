@@ -38,6 +38,9 @@ class TaskStore(ClaimStore):
     def is_due(self, row: sqlite3.Row, now: datetime) -> bool:
         return self._attention_reason(row, now) is not None
 
+    def review_version(self, row: sqlite3.Row, now: datetime) -> str:
+        return self._attention_reason(row, now) or ""
+
     def create(
         self,
         *,
@@ -217,6 +220,7 @@ class TaskStore(ClaimStore):
                     "due_proximity": due_proximity,
                     "form_schema": json.loads(row["form_schema_json"]),
                     "source_version": self.source_version(row),
+                    "review_version": self.review_version(row, current),
                 }
             )
         return result

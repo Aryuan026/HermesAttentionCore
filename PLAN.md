@@ -5,7 +5,7 @@
 - Generic external Inbox adapters with ingest-before-ACK.
 - Direct Calendar lane plus unified Continuation/Task/Inbox attention set.
 - Bounded 4% provider priority, diversity, exact claim, canonical queue
-  identity, and exact bounded-review quiet CAS.
+  identity, discrete review semantics, and exact bounded-review quiet CAS.
 - Pre-build expired-lease recovery and claimed-source freshness validation.
 - Live native Cron Agent with progressive Hermes tool/MCP discovery.
 - Portable installer, migration, Skills, and public adapter documentation.

@@ -37,7 +37,8 @@ Re-running updates the same heartbeat rather than creating another. The
 installer refreshes only generic Attention Skills and moves the legacy
 conversation-transcript hook out of active hooks. Native session binding also
 probes Hermes's installed `cron.jobs.get_job/update_job` seam and fails closed
-with a compatibility error when upstream moved it.
+with a compatibility error when upstream moved it. In attach mode this probe
+runs before any real Cron job create/edit.
 
 ## Add integrations at the correct seam
 
