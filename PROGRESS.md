@@ -43,4 +43,6 @@
 - A production canary exposed database-path drift between a regenerated
   heartbeat wrapper and a foreground gateway. The installer now accepts one
   explicit canonical database, pins it into both installed entrypoints, and
-  makes an unbound heartbeat fail visibly instead of creating another store.
+  makes an unbound entrypoint fail visibly instead of creating another store.
+- Added a short `AI_START_HERE.md`, a Chinese human/AI-readable implementation
+  guide, and a text-preserving 3:4 PDF edition for mobile sharing.

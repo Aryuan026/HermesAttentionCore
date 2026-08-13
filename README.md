@@ -7,6 +7,10 @@ Agent. It helps a live Agent notice external facts, reminders, continuations,
 and meaningful task changes without replacing Hermes's conversation context,
 voice, tools, MCP manager, or plugins.
 
+AI cold start: [`AI_START_HERE.md`](AI_START_HERE.md). 中文图解与实现索引：
+[`docs/zh-architecture-guide.md`](docs/zh-architecture-guide.md). 适合手机阅读与分享的
+[中文架构 PDF](output/pdf/Hermes-Attention-Core-中文架构说明.pdf).
+
 Instead of waiting for another direct command—or interrupting you for every new
 event—Hermes can wake with a small, well-shaped field of possibilities, notice
 the one thing that deserves care, use the abilities it already has, and respond
