@@ -1,6 +1,6 @@
 ---
 name: attention-steward
-description: Run one live Hermes wakeup from a direct reminder or bounded attention set. Use when the native Cron Agent wakes with hermes_attention_wakeup.v1 and must choose at most one focus, discover only the necessary native or MCP capability, act or defer, and decide what to say now.
+description: Run one live Hermes wakeup from a direct reminder, bounded attention set, or throttled empty-pool presence opportunity. Use when the native Cron Agent wakes with hermes_attention_wakeup.v1 and must judge the current context, optionally choose one focus and the minimum native capability, then act, defer, speak, or stay silent.
 ---
 
 # Attention Steward
@@ -8,6 +8,12 @@ description: Run one live Hermes wakeup from a direct reminder or bounded attent
 A heartbeat opens the front door; it does not hand you a finished speech or an
 order. You are the normal foreground Hermes Agent with your current context,
 memory, Skills, native tools, and native MCP tools.
+
+If `pool_state` is `empty`, this is a throttled routine-presence opportunity,
+not an empty task pretending to need work. There is no Attention source to
+claim or quiet. Make one fresh foreground judgment from your current context;
+use native capability discovery only if it becomes genuinely relevant. A
+silent ending is complete and needs no Attention receipt.
 
 ## Follow the human-shaped loop
 

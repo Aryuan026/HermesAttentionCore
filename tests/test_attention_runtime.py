@@ -88,9 +88,61 @@ class AttentionRuntimeTest(unittest.TestCase):
         self.assertTrue(rendered.endswith('{"wakeAgent": true}'))
         self.assertNotIn("final_message", rendered)
 
-    def test_empty_heartbeat_does_not_wake_or_deliver(self) -> None:
-        rendered = render_cron_preflight(heartbeat(self.stores, now=self.now))
-        self.assertEqual(rendered, '{"wakeAgent": false}')
+    def test_empty_heartbeat_opens_one_throttled_foreground_choice(self) -> None:
+        first = heartbeat(self.stores, now=self.now)
+        rendered = render_cron_preflight(first)
+        self.assertTrue(first["wake_agent"])
+        self.assertEqual(first["pool_state"], "empty")
+        self.assertEqual(first["wake_reason"], "routine_presence_due")
+        self.assertIn('"pool_state": "empty"', rendered)
+        self.assertNotIn('"attention":', rendered)
+        self.assertNotIn('"capability_policy":', rendered)
+        self.assertNotIn('"decision_policy":', rendered)
+        self.assertTrue(rendered.endswith('{"wakeAgent": true}'))
+
+        second = heartbeat(self.stores, now=self.now + timedelta(minutes=15))
+        self.assertFalse(second["wake_agent"])
+        self.assertEqual(render_cron_preflight(second), '{"wakeAgent": false}')
+
+    def test_empty_wake_budget_is_bounded_across_96_quarter_hour_ticks(self) -> None:
+        wakes = 0
+        for tick in range(96):
+            result = heartbeat(
+                self.stores,
+                now=self.now + timedelta(minutes=15 * tick),
+            )
+            wakes += int(result["wake_agent"])
+        self.assertLessEqual(wakes, 12)
+
+    def test_populated_pool_keeps_immediate_attention_behavior(self) -> None:
+        self.stores.inbox.ingest(self.event(), now=self.now)
+        result = heartbeat(self.stores, now=self.now)
+        rendered = render_cron_preflight(result)
+        self.assertTrue(result["wake_agent"])
+        self.assertEqual(result["pool_state"], "populated")
+        self.assertEqual(result["wake_reason"], "attention_pool")
+        self.assertIn('"attention":', rendered)
+        self.assertIn('"attention_focus_required": true', rendered)
+        self.assertIn('"select_at_most_one": true', rendered)
+        closed = self.stores.attention.quiet_set(
+            result["attention"]["set_id"],
+            result["attention"]["review_id"],
+            now=self.now,
+        )
+        self.assertTrue(closed["settled"])
+        next_tick = heartbeat(self.stores, now=self.now + timedelta(minutes=15))
+        self.assertFalse(next_tick["wake_agent"])
+        self.assertEqual(next_tick["pool_state"], "empty")
+
+    def test_empty_wake_is_coalesced_out_of_the_sleep_window(self) -> None:
+        sleep_time = datetime(2026, 8, 13, 19, 0, tzinfo=timezone.utc)
+        held = heartbeat(self.stores, now=sleep_time)
+        self.assertFalse(held["wake_agent"])
+        eligible = datetime.fromisoformat(
+            held["presence"]["next_eligible_at"]
+        ).astimezone(timezone(timedelta(hours=8)))
+        self.assertEqual(eligible.hour, 8)
+        self.assertLessEqual(eligible.minute, 20)
 
     def test_optional_adapter_failure_does_not_block_another_owner(self) -> None:
         self.stores.continuations.create(

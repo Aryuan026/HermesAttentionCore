@@ -22,6 +22,8 @@ provider adapter → InboxStore             ordinary Hermes context
               AttentionCoordinator
         unified set + 4% priority hint + diversity
                      │
+empty pool → bounded routine-presence cadence
+                     │
                native Cron wake gate
                      ▼
              live foreground Hermes Agent
@@ -46,6 +48,7 @@ source kind, and no project-owned delivery layer.
 |---|---|---|
 | Tool consolidation | The Agent sees one human-shaped loop: notice → judge → open one focus or close one exact review → find one hand → validate → act/observe → close → speak/silence. Poll, ACK, coalesce, leases, generations, and owner tables stay behind adapters/stores. | The wake Skill exposes `focus open/validate/close/defer/quiet-set`, not a bag of polling and database commands. |
 | Human-like attention and decisions | Calendar direct lane handles true due reminders. Other owners merge into one AOS. Ranking uses urgency 34%, owner impact 25%, continuity 18%, freshness 11%, aging 8%, and provider priority only 4%; provider and subject diversity prevent one feed dominating. Full eligible membership and bounded fully shown review membership have separate identities. Review identity also binds discrete presented semantics such as warning/overdue, never continuous scores. The model may exact-claim one presented source/meaning, or close only the exact review it actually considered. | Tests assert weights, diversity, direct lane, exact claim, canonical score-independent set identity, warning→overdue rejection before claim and before action, review-scoped quiet CAS, hidden candidates remaining eligible, and no repeat wake for reviewed members. |
+| Free attention without invented work | An empty AOS may open one throttled `routine_presence` wake. The packet carries only empty/populated state and reason; it does not manufacture a candidate or enumerate possible actions. The foreground Agent may use current context and native capabilities, speak, act, or remain silent. | Tests prove a real empty wake, no Attention payload or action menu, a bounded 24-hour wake budget, sleep-window coalescing, and unchanged immediate populated wakes. |
 | Pluggability | External providers implement `external event → agent_event.v1 → InboxStore`. Capability providers do not implement an Attention interface at all: they register through Hermes native tools/MCP. New internal owners require an explicit product/schema change rather than an untested generic hook. | A generic fake provider reaches AOS without changing scoring; a newly registered MCP requires no Attention-core edit. |
 | Adaptability | Channels are replaceable mouths. Conversations remain their native context; only explicit arrange actions form Calendar/Task/Continuation state. Candidate `capability_hints` are broad optional domains, never tool IDs or permissions. | Negative tests show QQ/mobile text is not ingested, and an event still wakes when its suggested MCP is absent. |
 | Portability | The runtime uses standard-library Python, a private SQLite file with owner-separated tables, generic setup/arrange/steward Skills, and one canonical Cron in normal Agent mode. Provider extensions are separate installable modules. | Blank-home installer test, Skill validation, upgrade test from legacy hook/no-agent Cron. |
@@ -63,6 +66,7 @@ compatibility fallback.
 | `ContinuationStore` | A causal intention deliberately deferred to a later stage/time | Read all due continuations and route exact claim |
 | `TaskStore` | Scheduled, standing, periodic tasks plus separate cycle history | Read meaningful task transitions; never run task maintenance inside AOS build |
 | `AttentionCoordinator` | No source-table SQL; cross-owner transaction orchestration through Store APIs | Build a deterministic view, preserve canonical full eligible identity, bound a separately identified review, and route exact lifecycle operations |
+| `PresenceCadenceStore` | One next-eligible timestamp and cadence generation | Open a bounded empty-pool foreground opportunity; never create an AOS member or prescribe an action |
 | Provider adapter | Poll one external source and ACK only after canonical Inbox ingest | Nothing else |
 | Hermes native capability manager | Enabled toolsets, MCP servers, schemas, platform policy, execution | Remains fully authoritative |
 | Live foreground Agent | Current judgment, capability choice, action, speech/silence | May exact-claim one source plus its presented review version, freshness/semantics-validate before action, or turn none into an exact bounded-review quiet terminal; reports only canonical outcomes |
@@ -160,10 +164,21 @@ outside AOS, builds the direct/AOS packet, and ends with Hermes Cron's
 `wakeAgent` gate. Recovery happens before candidate building so a process crash
 cannot leave an owner’s only candidate permanently invisible.
 
-When true, native Cron starts its normal Agent with normal tools and current
-context. The Agent makes a fresh decision, acts if useful, then writes fresh
-speech—or deliberately stays silent. Stored reminder text, provider text,
-prior replies, and script stdout never become an alarm-style final message.
+When a populated pool makes the gate true, native Cron starts its normal Agent
+with normal tools and current context. The Agent makes a fresh decision, acts
+if useful, then writes fresh speech—or deliberately stays silent. Stored
+reminder text, provider text, prior replies, and script stdout never become an
+alarm-style final message.
+
+An empty pool follows a separate cadence adapted from Asherie Home's routine
+presence wheel: a default 2-hour minimum gap plus up to 1 hour of stable jitter,
+with the 01:00–08:00 local sleep window coalesced into one later morning chance.
+Unlike Home, the portable runtime does not inspect any channel's human-message
+timestamps; the cadence is anchored only by its own foreground wakes, so QQ,
+mobile, Feishu, and future channels remain replaceable mouths. The empty packet
+contains only `pool_state: empty` and its cadence reason. Inclinations such as
+“playing is allowed” belong to SOUL/memory/domain Skills and available native
+capabilities—not a permanent task row or an action menu in the heartbeat.
 Opening a selected focus compares the immutable source version and the bounded
 review's discrete `review_version`, then stores both meanings with the claim.
 Validation and terminal settlement compare them again. A warning-phase decision

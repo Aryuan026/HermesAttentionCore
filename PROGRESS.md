@@ -15,6 +15,13 @@
 
 ## Unreleased — lifecycle hardening
 
+- Added a bounded empty-pool presence cadence adapted from Asherie Home's
+  opportunity-not-command semantics. A due empty pool wakes the normal Agent
+  with only `pool_state` and a cadence reason; no fake candidate, action menu,
+  Attention receipt, or prewritten speech is created. The default 2-hour
+  minimum gap, stable jitter, and sleep-window coalescing bound token cost,
+  while populated attention remains immediate. The full public suite now
+  passes 58 tests and all three Skills validate.
 - Added heartbeat-level expired-claim recovery before AOS build, so an Agent
   crash cannot leave the only candidate for one owner permanently invisible.
 - Split canonical full eligible `set_id` from bounded displayed `review_id`;

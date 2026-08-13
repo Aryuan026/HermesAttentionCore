@@ -210,6 +210,15 @@ class RuntimeDatabase:
                     result_json TEXT NOT NULL,
                     applied_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS routine_presence_state (
+                    state_id TEXT PRIMARY KEY,
+                    generation INTEGER NOT NULL DEFAULT 0,
+                    last_opened_at TEXT NOT NULL DEFAULT '',
+                    next_due_at TEXT NOT NULL DEFAULT '',
+                    last_reason TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL
+                );
                 """
             )
             for table in (

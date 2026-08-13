@@ -22,6 +22,9 @@ work.
   by newer coalesced state must fail freshness validation before side effects.
 - Cron wakes one normal foreground Agent. Do not launch a nested Agent or turn
   script output into prewritten owner speech.
+- An empty pool may open one throttled `routine_presence` wake after a bounded
+  cadence; it must not wake on every Cron tick or enumerate an action menu.
+  Populated attention remains immediate and unchanged.
 - Keep secrets, runtime databases, logs, chat text, and receipts out of Git.
 - Inbox identity/routing fields are validated, never silently truncated.
 - New behavior needs both a legal positive path and a boundary/failure test.

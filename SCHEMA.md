@@ -10,6 +10,8 @@ deployment convenience; Attention is not their writer.
 - `hermes_tasks`: scheduled, standing, or periodic task definitions.
 - `hermes_task_cycles`: separate monthly cycles, forms/results, and history.
 - `source_receipts`: terminal source outcomes and compact canonical evidence.
+- `routine_presence_state`: one lightweight cadence row for bounded empty-pool
+  foreground opportunities; it contains no candidate, action, or speech text.
 - `runtime_migrations`: idempotent migration receipts.
 
 Source lifecycle is owner-specific. Inbox/Calendar/Continuation normally use
@@ -43,6 +45,12 @@ without adding it to `source_version` or score-independent `set_id`. Candidate
 capability hints contain broad domains only.
 Tool definitions, permissions, MCP configuration, action receipts, and
 conversation routing are not part of the AOS schema.
+
+`routine_presence_state` is likewise outside AOS ownership. It records only a
+generation, the last opened time, next eligible time, and why the cadence was
+last anchored. A real populated wake resets that anchor; an empty Cron tick
+opens the gate only when due. The resulting wake packet says `pool_state:
+empty` without manufacturing an eligible member or a receipt lifecycle.
 
 The coordinator owns cross-source transaction orchestration, not source SQL.
 Each owner store supplies transaction-aware freeze, freshness validation, and

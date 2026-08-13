@@ -20,7 +20,7 @@ Sometimes it is an auditable decision to stay quiet.
 ```text
 external facts → Inbox adapters ┐
 explicit future intent → stores ├→ one bounded attention set → live Hermes
-                                 │                              │
+empty pool → presence cadence ───┘                              │
 Hermes native tools and MCPs ────┴──── discovered only as needed┘
 ```
 
@@ -95,6 +95,11 @@ new persona, memory system, conversation channel, or tool stack on it.
 - **Wakeup is not delivery.** Heartbeat only performs bounded preflight and
   asks native Cron to wake the normal Agent. The Agent judges, acts, and writes
   fresh speech—or stays silent—using its current context.
+- **An empty inbox does not switch agency off.** A separate, throttled presence
+  cadence occasionally wakes Hermes with only `pool_state: empty`. It supplies
+  no fake task and no action menu, so the Agent can follow its current memory
+  and inclinations—or decide that doing nothing is right—without waking on all
+  96 quarter-hour ticks in a day.
 
 ### Where it shines
 
@@ -117,6 +122,9 @@ new persona, memory system, conversation channel, or tool stack on it.
 被收成一小盘候选；真正醒来的仍是活的前台 Agent，它当场决定使用哪个原生工具、
 做什么、说什么，或者保持安静。QQ、mobile、飞书或未来的新入口都可以继续做它
 的嘴；新 MCP 继续做它的手。Attention 只帮它判断——**此刻，什么值得看一眼？**
+即使这一小盘暂时是空的，也不会永远关机：一个有节流的“在场机会”偶尔把判断权
+交还给活的 Agent，但不塞给它“去聊天/去玩/去工作”的动作菜单。它可以行动，也
+可以真的选择安静。
 
 ## Install
 

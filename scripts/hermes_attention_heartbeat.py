@@ -22,7 +22,25 @@ if not configured_database:
     )
 database = Path(configured_database)
 stores = open_runtime(str(database))
-result = heartbeat(stores, adapter_polls=load_adapter_polls(stores))
+result = heartbeat(
+    stores,
+    adapter_polls=load_adapter_polls(stores),
+    empty_wake_min_gap_minutes=int(
+        os.environ.get("HERMES_ATTENTION_EMPTY_WAKE_MIN_GAP_MINUTES", "120")
+    ),
+    empty_wake_jitter_seconds=int(
+        os.environ.get("HERMES_ATTENTION_EMPTY_WAKE_JITTER_SECONDS", "3600")
+    ),
+    empty_wake_timezone=os.environ.get(
+        "HERMES_ATTENTION_EMPTY_WAKE_TIMEZONE", "Asia/Shanghai"
+    ),
+    empty_wake_sleep_start_hour=int(
+        os.environ.get("HERMES_ATTENTION_EMPTY_WAKE_SLEEP_START_HOUR", "1")
+    ),
+    empty_wake_sleep_end_hour=int(
+        os.environ.get("HERMES_ATTENTION_EMPTY_WAKE_SLEEP_END_HOUR", "8")
+    ),
+)
 for adapter in result["adapter_results"]:
     if not adapter["ok"]:
         # Optional-source failure is visible in operator logs but cannot block

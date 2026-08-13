@@ -36,6 +36,13 @@
   meaningful-state surfacing, monthly cycles, completion forms/history,
   `Asia/Shanghai`, and local due proximity remain Hermes-specific semantics.
 - The heartbeat script cannot be an Agent, sender, or final content generator.
+- An empty attention pool may still open a `routine_presence` foreground wake.
+  The empty packet carries only `pool_state` and a wake reason: no synthetic
+  candidate, action menu, prewritten speech, or Attention receipt obligation.
+- Empty-pool wakes are persistently bounded by a configurable minimum gap and
+  stable jitter, with sleep-window occurrences coalesced into one later wake.
+  A populated pool bypasses this throttle and preserves existing Attention
+  behavior. Silence after an empty wake is a complete valid outcome.
 - External Inbox bounds and secret redaction are enforced by `InboxStore`, not
   merely promised by adapter documentation.
 - Stable Inbox identity and routing fields reject overlength input rather than

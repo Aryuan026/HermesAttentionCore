@@ -76,6 +76,17 @@ class InstallerTest(unittest.TestCase):
                 content = wrapper.read_text(encoding="utf-8")
                 self.assertIn(f"export HERMES_ATTENTION_DB={canonical}", content)
                 self.assertIn(f"export HERMES_HOME={root / '.hermes'}", content)
+            heartbeat_wrapper = (
+                root / ".hermes" / "scripts" / "hermes_attention_heartbeat.sh"
+            ).read_text(encoding="utf-8")
+            self.assertIn(
+                "HERMES_ATTENTION_EMPTY_WAKE_MIN_GAP_MINUTES=120",
+                heartbeat_wrapper,
+            )
+            self.assertIn(
+                "HERMES_ATTENTION_EMPTY_WAKE_JITTER_SECONDS=3600",
+                heartbeat_wrapper,
+            )
 
             environment = dict(os.environ)
             environment["HERMES_ATTENTION_DB"] = str(decoy)

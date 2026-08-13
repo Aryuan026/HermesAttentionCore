@@ -2,7 +2,7 @@
 
 > Hermes Attention Core 中文架构说明<br>
 > 面向人类读者，也面向接手代码的 AI Agent<br>
-> 实现基线：公开仓代码提交 `783f81a`；文档日期：2026-08-13
+> 实现基线：公开仓当前实现；文档日期：2026-08-13
 
 手机友好的 3:4 图解版：
 [`output/pdf/Hermes-Attention-Core-中文架构说明.pdf`](../output/pdf/Hermes-Attention-Core-中文架构说明.pdf)
@@ -17,6 +17,8 @@ Hermes Attention Core 不是第二个 AI、不是记忆库，也不是定时发�
 ```text
 外部事实 → Adapter → Inbox ┐
 明确的未来意图 → Calendar / Task / Continuation ├→ Attention set
+                                                     ↓
+空池 → 有节流的 routine presence ───────────────────┘
                                                      ↓
                                               Hermes native Cron
                                                      ↓
@@ -70,6 +72,11 @@ Hermes Attention Core 不是第二个 AI、不是记忆库，也不是定时发�
 9. **诚实收尾**：只有 canonical receipt 才能证明做成；Agent 根据真实结果决定现在
    说什么或保持沉默。
 
+空池走一条更薄的路：它不伪造一条“去玩”候选，也不要求 focus/receipt。默认至少
+间隔 2 小时，再加最多 1 小时的稳定抖动；01:00–08:00 的机会合并到早晨一次。
+真正唤醒时只告诉 Agent：`pool_state: empty`。此刻去玩、继续思考、找人说话或保持
+安静，仍由它结合自己的 SOUL、记忆、Skill 和原生能力判断。
+
 ## 身份为什么分三层
 
 这是实现里最重要、也最容易写错的部分。
@@ -97,6 +104,8 @@ SQLite 文件可以共享，但表的写入权不共享：
 - `ContinuationStore`：有因果关系、明确延后的下一阶段。
 - `TaskStore`：scheduled、standing、periodic，以及独立 cycle 历史。
 - `AttentionCoordinator`：只构建统一视图并编排事务，不直接成为 source row 的 owner。
+- `PresenceCadenceStore`：只记录空池下次何时允许唤醒，不是第五种候选 owner，里面
+  没有动作菜单、任务正文或预写发言。
 - `source_receipts`：终局结果与最小可审计证据。
 
 `TaskStore.maintain()` 在 AOS build 之前运行；维护动作本身不是“值得注意的事情”。
@@ -130,6 +139,7 @@ src/hermes_attention/
   calendar.py       direct reminder owner
   continuations.py  因果延续事项 owner
   tasks.py          scheduled/standing/periodic 与 cycle
+  presence.py       空池自主判断机会的节流、抖动与睡眠时段合并
   db.py             SQLite schema、事务与文件权限
   adapters.py       可信 adapter 注册与隔离轮询
   cli.py            arrange/build/focus 的模型操作面
@@ -170,6 +180,8 @@ focus quiet-set 只关闭这一轮完整看过的 bounded review
 diversity、stable set identity、bounded reviewed-quiet、warning→overdue 语义变化、
 lease recovery、superseded freshness、atomic receipt、channel negative、native tool
 boundary、安装升级和单一数据库绑定。
+当前版本也覆盖：空池实际唤醒、15 分钟 tick 节流、96 tick/天预算上界、睡眠窗口合并，
+以及非空池仍立即沿用原 Attention 生命周期。
 
 代码 Green 不冒充真实行为 Green。真实链路仍按以下阶段报告：
 

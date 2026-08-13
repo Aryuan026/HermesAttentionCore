@@ -50,6 +50,11 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--install-cron", action="store_true")
     root.add_argument("--deliver", help="Hermes delivery platform for this installation")
     root.add_argument("--schedule", default="*/15 * * * *")
+    root.add_argument("--empty-wake-min-gap-minutes", type=int, default=120)
+    root.add_argument("--empty-wake-jitter-seconds", type=int, default=3600)
+    root.add_argument("--empty-wake-timezone", default="Asia/Shanghai")
+    root.add_argument("--empty-wake-sleep-start-hour", type=int, default=1)
+    root.add_argument("--empty-wake-sleep-end-hour", type=int, default=8)
     root.add_argument("--workdir", type=Path, default=Path.home())
     root.add_argument("--attach-to-session", action="store_true")
     root.add_argument("--origin-platform")
@@ -127,6 +132,12 @@ def install_wrappers(
     hermes_home: Path,
     attention_db: Path,
     bin_dir: Path,
+    *,
+    empty_wake_min_gap_minutes: int,
+    empty_wake_jitter_seconds: int,
+    empty_wake_timezone: str,
+    empty_wake_sleep_start_hour: int,
+    empty_wake_sleep_end_hour: int,
 ) -> None:
     runtime = shlex.quote(str(install_root))
     home = shlex.quote(str(hermes_home))
@@ -147,6 +158,11 @@ def install_wrappers(
         f"export HERMES_HOME={home}\n"
         f"export HERMES_ATTENTION_REPO={runtime}\n"
         f"export HERMES_ATTENTION_DB={database}\n"
+        f"export HERMES_ATTENTION_EMPTY_WAKE_MIN_GAP_MINUTES={max(15, int(empty_wake_min_gap_minutes))}\n"
+        f"export HERMES_ATTENTION_EMPTY_WAKE_JITTER_SECONDS={max(0, int(empty_wake_jitter_seconds))}\n"
+        f"export HERMES_ATTENTION_EMPTY_WAKE_TIMEZONE={shlex.quote(str(empty_wake_timezone))}\n"
+        f"export HERMES_ATTENTION_EMPTY_WAKE_SLEEP_START_HOUR={max(0, min(23, int(empty_wake_sleep_start_hour)))}\n"
+        f"export HERMES_ATTENTION_EMPTY_WAKE_SLEEP_END_HOUR={max(0, min(23, int(empty_wake_sleep_end_hour)))}\n"
         f"exec python3 {runtime}/scripts/hermes_attention_heartbeat.py\n",
     )
 
@@ -359,7 +375,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     bin_dir = args.bin_dir.expanduser().resolve()
     copy_runtime(source_root, install_root)
-    install_wrappers(install_root, hermes_home, attention_db, bin_dir)
+    install_wrappers(
+        install_root,
+        hermes_home,
+        attention_db,
+        bin_dir,
+        empty_wake_min_gap_minutes=args.empty_wake_min_gap_minutes,
+        empty_wake_jitter_seconds=args.empty_wake_jitter_seconds,
+        empty_wake_timezone=args.empty_wake_timezone,
+        empty_wake_sleep_start_hour=args.empty_wake_sleep_start_hour,
+        empty_wake_sleep_end_hour=args.empty_wake_sleep_end_hour,
+    )
     install_hermes_assets(install_root, hermes_home)
     initialize_store(hermes_home, attention_db, bin_dir=bin_dir)
     cron_status = "not requested"
