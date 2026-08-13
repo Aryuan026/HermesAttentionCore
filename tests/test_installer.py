@@ -101,6 +101,20 @@ class InstallerTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("HERMES_ATTENTION_DB is required", result.stderr)
 
+    def test_cli_refuses_to_invent_an_unconfigured_database(self) -> None:
+        environment = dict(os.environ)
+        environment.pop("HERMES_ATTENTION_DB", None)
+        environment["PYTHONPATH"] = str(self.repository / "src")
+        result = subprocess.run(
+            [sys.executable, "-m", "hermes_attention.cli", "init"],
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("HERMES_ATTENTION_DB is required", result.stderr)
+
     def test_legacy_transcript_hook_is_archived(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -70,7 +70,7 @@ compatibility fallback.
 Sharing one SQLite file is a deployment convenience, not shared ownership.
 The installer binds both model-facing CLI operations and heartbeat preflight to
 the same canonical path. A custom deployment path is explicit installation
-state; heartbeat does not silently fall back to a second home-directory file.
+state; neither entrypoint silently falls back to a second home-directory file.
 
 ## 4. External adapter contract
 

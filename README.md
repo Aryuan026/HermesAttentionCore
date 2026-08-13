@@ -133,8 +133,8 @@ python3 scripts/install_hermes.py \
 ```
 
 The installed CLI and heartbeat then use that same file even when their parent
-processes have different environments. The heartbeat refuses to invent a
-fallback database when this binding is absent.
+processes have different environments. The CLI and heartbeat refuse to invent
+a fallback database when this binding is absent.
 
 If people will reply to heartbeat messages, keep those deliveries in the
 target native conversation:

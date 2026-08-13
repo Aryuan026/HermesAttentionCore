@@ -14,10 +14,11 @@ from .runtime import open_runtime
 
 def database_path() -> Path:
     configured = os.environ.get("HERMES_ATTENTION_DB", "").strip()
-    hermes_home = Path(
-        os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))
-    ).expanduser()
-    return Path(configured) if configured else hermes_home / "attention" / "attention.sqlite3"
+    if not configured:
+        raise SystemExit(
+            "HERMES_ATTENTION_DB is required; run the installed hermes-attention wrapper"
+        )
+    return Path(configured)
 
 
 def print_json(value: Any) -> None:
