@@ -41,6 +41,11 @@ def parser() -> argparse.ArgumentParser:
         default=Path.home() / ".local" / "share" / "hermes-attention-runtime",
     )
     root.add_argument("--hermes-home", type=Path, default=default_hermes_home())
+    root.add_argument(
+        "--attention-db",
+        type=Path,
+        help="Canonical Attention SQLite file (default: <hermes-home>/attention/attention.sqlite3)",
+    )
     root.add_argument("--bin-dir", type=Path, default=Path.home() / ".local" / "bin")
     root.add_argument("--install-cron", action="store_true")
     root.add_argument("--deliver", help="Hermes delivery platform for this installation")
@@ -120,13 +125,18 @@ def write_executable(path: Path, content: str) -> None:
 def install_wrappers(
     install_root: Path,
     hermes_home: Path,
+    attention_db: Path,
     bin_dir: Path,
 ) -> None:
     runtime = shlex.quote(str(install_root))
+    home = shlex.quote(str(hermes_home))
+    database = shlex.quote(str(attention_db))
     write_executable(
         bin_dir / "hermes-attention",
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
+        f"export HERMES_HOME={home}\n"
+        f"export HERMES_ATTENTION_DB={database}\n"
         f"export PYTHONPATH={runtime}/src${{PYTHONPATH:+:${{PYTHONPATH}}}}\n"
         'exec python3 -m hermes_attention.cli "$@"\n',
     )
@@ -134,9 +144,9 @@ def install_wrappers(
         hermes_home / "scripts" / "hermes_attention_heartbeat.sh",
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
-        f"export HERMES_HOME={shlex.quote(str(hermes_home))}\n"
+        f"export HERMES_HOME={home}\n"
         f"export HERMES_ATTENTION_REPO={runtime}\n"
-        f"export HERMES_ATTENTION_DB={shlex.quote(str(hermes_home / 'attention' / 'attention.sqlite3'))}\n"
+        f"export HERMES_ATTENTION_DB={database}\n"
         f"exec python3 {runtime}/scripts/hermes_attention_heartbeat.py\n",
     )
 
@@ -178,15 +188,19 @@ def command_path(name: str, *, bin_dir: Path | None = None) -> str:
     raise SystemExit(f"Required command is not installed: {name}")
 
 
-def initialize_store(hermes_home: Path, *, bin_dir: Path) -> None:
-    attention_dir = hermes_home / "attention"
+def initialize_store(
+    hermes_home: Path,
+    attention_db: Path,
+    *,
+    bin_dir: Path,
+) -> None:
+    attention_dir = attention_db.parent
     attention_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    attention_dir.chmod(0o700)
+    if attention_dir == hermes_home / "attention":
+        attention_dir.chmod(0o700)
     environment = dict(os.environ)
     environment["HERMES_HOME"] = str(hermes_home)
-    environment["HERMES_ATTENTION_DB"] = str(
-        hermes_home / "attention" / "attention.sqlite3"
-    )
+    environment["HERMES_ATTENTION_DB"] = str(attention_db)
     subprocess.run(
         [command_path("hermes-attention", bin_dir=bin_dir), "init"],
         env=environment,
@@ -338,11 +352,16 @@ def main(argv: list[str] | None = None) -> int:
     source_root = args.source_root.expanduser().resolve()
     install_root = args.install_root.expanduser().resolve()
     hermes_home = args.hermes_home.expanduser().resolve()
+    attention_db = (
+        args.attention_db.expanduser().resolve()
+        if args.attention_db
+        else hermes_home / "attention" / "attention.sqlite3"
+    )
     bin_dir = args.bin_dir.expanduser().resolve()
     copy_runtime(source_root, install_root)
-    install_wrappers(install_root, hermes_home, bin_dir)
+    install_wrappers(install_root, hermes_home, attention_db, bin_dir)
     install_hermes_assets(install_root, hermes_home)
-    initialize_store(hermes_home, bin_dir=bin_dir)
+    initialize_store(hermes_home, attention_db, bin_dir=bin_dir)
     cron_status = "not requested"
     continuity_status = "not requested"
     if args.install_cron:
@@ -368,6 +387,7 @@ def main(argv: list[str] | None = None) -> int:
             continuity_status = "attached"
     print(f"runtime={install_root}")
     print(f"hermes_home={hermes_home}")
+    print(f"attention_db={attention_db}")
     print(f"cron={cron_status}")
     print(f"session_continuity={continuity_status}")
     return 0

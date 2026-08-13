@@ -15,12 +15,12 @@ from hermes_attention.adapters import load_adapter_polls
 from hermes_attention.runtime import heartbeat, open_runtime, render_cron_preflight
 
 
-database = Path(
-    os.environ.get(
-        "HERMES_ATTENTION_DB",
-        str(Path.home() / ".hermes" / "attention" / "attention.sqlite3"),
+configured_database = os.environ.get("HERMES_ATTENTION_DB", "").strip()
+if not configured_database:
+    raise SystemExit(
+        "HERMES_ATTENTION_DB is required; run the installed heartbeat wrapper"
     )
-)
+database = Path(configured_database)
 stores = open_runtime(str(database))
 result = heartbeat(stores, adapter_polls=load_adapter_polls(stores))
 for adapter in result["adapter_results"]:

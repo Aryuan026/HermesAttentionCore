@@ -42,6 +42,9 @@
   truncating distinct values into aliases. Display-only fields may be bounded.
 - An attach-to-session install probes the installed native Cron API before any
   real heartbeat job is created or edited.
+- Installation binds the CLI and heartbeat to one canonical database path.
+  A heartbeat without that binding fails visibly instead of creating a second
+  default store.
 
 ## Acceptance
 

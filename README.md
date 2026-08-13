@@ -122,6 +122,20 @@ cd HermesAttentionCore
 python3 scripts/install_hermes.py --install-cron --deliver <platform>
 ```
 
+The installer pins one canonical database into both installed entrypoints. If
+the database lives outside the default Hermes home, name it explicitly on every
+install or upgrade:
+
+```bash
+python3 scripts/install_hermes.py \
+  --attention-db /absolute/private/attention.sqlite3 \
+  --install-cron --deliver <platform>
+```
+
+The installed CLI and heartbeat then use that same file even when their parent
+processes have different environments. The heartbeat refuses to invent a
+fallback database when this binding is absent.
+
 If people will reply to heartbeat messages, keep those deliveries in the
 target native conversation:
 

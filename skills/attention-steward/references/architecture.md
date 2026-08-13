@@ -68,6 +68,9 @@ compatibility fallback.
 | Live foreground Agent | Current judgment, capability choice, action, speech/silence | May exact-claim one source plus its presented review version, freshness/semantics-validate before action, or turn none into an exact bounded-review quiet terminal; reports only canonical outcomes |
 
 Sharing one SQLite file is a deployment convenience, not shared ownership.
+The installer binds both model-facing CLI operations and heartbeat preflight to
+the same canonical path. A custom deployment path is explicit installation
+state; heartbeat does not silently fall back to a second home-directory file.
 
 ## 4. External adapter contract
 

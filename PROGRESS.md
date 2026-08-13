@@ -40,3 +40,7 @@
 - Generic upgrades now tighten the installer-owned
   `~/.hermes/attention` directory to 0700, including homes created by an older
   release with a more permissive mode.
+- A production canary exposed database-path drift between a regenerated
+  heartbeat wrapper and a foreground gateway. The installer now accepts one
+  explicit canonical database, pins it into both installed entrypoints, and
+  makes an unbound heartbeat fail visibly instead of creating another store.

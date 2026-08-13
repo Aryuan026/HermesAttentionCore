@@ -55,6 +55,52 @@ class InstallerTest(unittest.TestCase):
 
             self.assertEqual(stat.S_IMODE(attention.stat().st_mode), 0o700)
 
+    def test_custom_database_is_pinned_across_installed_entrypoints(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            canonical = root / "custody" / "attention" / "canonical.sqlite3"
+            decoy = root / "decoy.sqlite3"
+
+            result = self.install(
+                root,
+                "--attention-db", str(canonical),
+            )
+
+            self.assertIn(f"attention_db={canonical}", result.stdout)
+            self.assertTrue(canonical.exists())
+            self.assertFalse((root / ".hermes" / "attention" / "attention.sqlite3").exists())
+            for wrapper in (
+                root / "bin" / "hermes-attention",
+                root / ".hermes" / "scripts" / "hermes_attention_heartbeat.sh",
+            ):
+                content = wrapper.read_text(encoding="utf-8")
+                self.assertIn(f"export HERMES_ATTENTION_DB={canonical}", content)
+                self.assertIn(f"export HERMES_HOME={root / '.hermes'}", content)
+
+            environment = dict(os.environ)
+            environment["HERMES_ATTENTION_DB"] = str(decoy)
+            subprocess.run(
+                [str(root / "bin" / "hermes-attention"), "init"],
+                env=environment,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertFalse(decoy.exists())
+
+    def test_heartbeat_refuses_to_invent_an_unconfigured_database(self) -> None:
+        environment = dict(os.environ)
+        environment.pop("HERMES_ATTENTION_DB", None)
+        result = subprocess.run(
+            [sys.executable, str(self.repository / "scripts" / "hermes_attention_heartbeat.py")],
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("HERMES_ATTENTION_DB is required", result.stderr)
+
     def test_legacy_transcript_hook_is_archived(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
