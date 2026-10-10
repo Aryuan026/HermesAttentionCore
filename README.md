@@ -2,216 +2,179 @@
 
 **Give Hermes a sense of what matters next.**
 
-A portable, channel-neutral attention layer for a single owner-operated Hermes
-Agent. It helps a live Agent notice external facts, reminders, continuations,
-and meaningful task changes without replacing Hermes's conversation context,
-voice, tools, MCP manager, or plugins.
+A portable, channel-neutral attention layer for one owner-operated Hermes Agent.
+External facts, deliberate reminders, continuations and meaningful task changes
+become a small field of possibilities. The live Agent decides whether to act,
+speak freshly or stay quiet using the abilities it already has.
 
-AI cold start: [`AI_START_HERE.md`](AI_START_HERE.md). 中文图解与实现索引：
-[`docs/zh-architecture-guide.md`](docs/zh-architecture-guide.md). 适合手机阅读与分享的
-[中文架构 PDF](output/pdf/Hermes-Attention-Core-中文架构说明.pdf).
+## Compatibility
 
-Instead of waiting for another direct command—or interrupting you for every new
-event—Hermes can wake with a small, well-shaped field of possibilities, notice
-the one thing that deserves care, use the abilities it already has, and respond
-freshly. Sometimes the right result is an action. Sometimes it is a message.
-Sometimes it is an auditable decision to stay quiet.
+Last reviewed: **2026-10-10**. Core version: **0.1.0**; Python: **3.9+**.
+This is a runtime plus Skills/native Cron integration, **not** a manifest-v2
+request plugin and not a replacement Hermes memory backend.
+
+- **Hermes 0.21.5 — current verified installation seam.** Public Core
+  `39112759f2d43a6c228e6a0c089f2e8dda33387b` passed the real CLI create/edit
+  and native session-binding regression against the fixed owner-maintained
+  0.21.5 host. Python 3.11 ran 60/60; Python 3.12 ran 59 with one real-host
+  skip. This qualifies that seam, not every provider or plain upstream build.
+- **Hermes 0.20.5 — historical runtime lineage.** The matching private Runtime
+  has recorded live wake, quiet and source/action canaries. Those results are
+  not a fresh deployment or full-host qualification of current public Core.
+- **Hermes 0.21.3 and other versions — no separate current-Core
+  qualification recorded here.** Do not infer support from a version range
+  or from another component's migration tests.
+
+Core itself needs no Continuity/Global Hot host patch set. It does require a
+working `hermes cron` command, native Cron preflight/Agent execution and the
+`cron.jobs` read/update APIs for session attachment. The installer probes
+attach compatibility before job mutation. Create uses a **positional schedule**
+and native default Agent mode; only edit uses `--schedule` and `--agent`.
+A public Core test pass is not evidence that Core replaced a private deployment.
+
+## Highlights
+
+- **Stimulus, ability and mouth are separate.** Inbox adapters supply compact
+  facts; Hermes tools/MCP/plugins supply abilities; channels supply delivery.
+  A new integration does not require changing the Attention core.
+- **Attention is not FIFO.** Calendar reminders have a direct lane; other
+  sources use bounded salience, aging and provider/subject diversity. Provider
+  priority is only a bounded 4% hint.
+- **Quiet is an exact decision.** `reviewed-quiet` closes only the fully shown,
+  bounded review—not hidden candidates the Agent never considered.
+- **A selected focus stays tied to its meaning.** Exact source/review versions
+  survive claim, pre-action validation, settle and defer. A warning that turns
+  overdue cannot silently authorize an old claim.
+- **An empty pool does not switch agency off.** A throttled presence opportunity
+  can wake the same Agent with `pool_state: empty`, without a fake task,
+  prescribed action menu or prewritten speech.
+- **No second tool universe.** Native tools, MCP permissions, personality,
+  conversation history and long-term memory remain Hermes's responsibility.
+
+中文速览：它只帮 Hermes 判断“此刻什么值得看一眼”。真正醒来的仍是活的 Agent；
+消息、工具和记忆各归其位，行动与安静都可以成为诚实的结果。
+
+## How it works
 
 ```text
 external facts → Inbox adapters ┐
-explicit future intent → stores ├→ one bounded attention set → live Hermes
-empty pool → presence cadence ───┘                              │
-Hermes native tools and MCPs ────┴──── discovered only as needed┘
+explicit future intent → stores ├→ bounded attention → native Cron Agent
+empty pool → presence cadence ──┘                         │
+native Hermes tools / MCP ────────────────────────────────┘
+                                    action + fresh speech / silence
 ```
 
-The central boundary is simple:
+Calendar, Continuation, Task and Inbox retain their own state. The coordinator
+builds one read-only Attention Opportunity Set. Its eligible `set_id` is
+score-independent; the smaller, fully presented `review_id` has exact
+membership. Expired claims are recovered before build, and superseded facts
+fail freshness validation before side effects.
 
-- Conversation channels such as QQ, mobile, Feishu, or CLI are replaceable
-  mouths. Ordinary turns do not become Attention events.
-- External systems such as an AI forum, monitored mailbox, signup site, or
-  sensor write compact facts through the generic Inbox adapter contract.
-- Actual abilities remain native Hermes tools/MCP/plugins. Attention carries
-  only optional broad domain hints, never tool schemas or permissions.
-- A native Cron preflight wakes the normal foreground Agent. That Agent chooses
-  one exact source plus the discrete meaning it actually saw—or closes only
-  the bounded review it actually considered—then decides fresh action, speech,
-  or silence.
+Heartbeat performs preflight only: it does not launch a nested Agent, execute
+an action menu or deliver script output as owner speech. Ordinary QQ/mobile/
+Feishu/CLI turns are not automatically converted to events or tasks.
+Only explicit future intent creates a reminder, task or continuation.
 
-The full reproducible contract is in
-[architecture.md](skills/attention-steward/references/architecture.md).
+## Installation
 
-## Why it fits Hermes
-
-Hermes already knows how to converse, keep a live context, load Skills, and
-call native tools or MCP servers. This project does not replace those parts.
-It adds the missing **attention plane** between “something may matter” and
-“wake the live Agent and let it decide what to do now.”
-
-| Compared with | That layer answers | Hermes Attention Core answers |
-|---|---|---|
-| Hermes native tools / MCP / plugins | “What hands and abilities are available?” | “Which one situation deserves a bounded look now?” It leaves discovery, schemas, permission, and execution in Hermes. |
-| Cron or reminder delivery | “What should run or be delivered at this time?” | “Should the live Agent wake and reconsider the current situation?” Stored text is context, never a frozen final message. |
-| Queue / inbox worker | “Which queued job should execute next?” | “What would a person notice among reminders, continuations, tasks, and outside facts?” It is not FIFO and may mark one exact, fully shown review as quiet. |
-| Event bus / notification system | “Which events should be transported to consumers?” | “Which compact facts remain salient after coalescing, expiry, diversity, and owner-aware judgment?” Not every event becomes speech. |
-| Agent memory / chat history | “What past information can be recalled?” | “What needs a present look?” It neither copies the memory layer nor mines every conversation turn into a task. |
-| Autonomous loop / workflow engine | “Which predefined action or next node runs?” | “Is one live decision worth making?” The foreground Agent still chooses a native capability, action, fresh reply, or silence. |
-
-The core uses a unified Attention Opportunity Set: heterogeneous owner
-candidates share one queue, provider priority remains a small 4% hint, and
-selection uses an exact claim. The full eligible queue has a stable identity;
-the smaller, fully displayed review has its own identity. A genuinely
-uninteresting review can be closed exactly as `reviewed-quiet` without signing
-off on hidden candidates. A selected focus also carries that review meaning
-through pre-action validation, so a warning cannot silently become overdue
-authority. The result is a compact portable layer that can give
-an otherwise blank Hermes installation useful initiative without forcing a
-new persona, memory system, conversation channel, or tool stack on it.
-
-### Distinctive characteristics
-
-- **Stimulus, capability, and mouth are separate.** External facts enter
-  Inbox; abilities stay in Hermes; QQ, mobile, Feishu, CLI, or a future UI are
-  interchangeable conversation surfaces.
-- **Attention is human-shaped but auditable.** Due reminders have a direct
-  lane; other candidates use bounded scoring, aging, provider/subject diversity,
-  exact claims, and canonical receipts instead of an opaque free-running loop.
-- **Silence is a real, evidenced decision.** `reviewed-quiet` closes exactly
-  the bounded candidates whose full content the Agent received. It prevents
-  repeat wakes for reviewed facts without pretending unseen facts were judged.
-- **Interrupted work does not silently disappear.** Heartbeat recovers expired
-  focus leases before rebuilding attention. A newer coalesced fact also makes
-  an older claimed fact fail freshness validation before a side effect can be
-  recorded as canonical success.
-- **Identity does not drift with mood or time.** Scores may age and rankings may
-  cross, but immutable source membership—not display order—defines `set_id`.
-- **Tools appear progressively.** Attention supplies at most a broad domain
-  hint. Hermes's own `tool_search` / `tool_describe` / `tool_call` path exposes
-  only the concrete native capability needed for this turn.
-- **New integrations do not grow the core sideways.** A forum, mailbox, signup
-  site, sensor, or game provides compact idempotent events through an Inbox
-  adapter. If it also offers actions, those are installed independently as a
-  native MCP or tool. Inbox itself enforces payload bounds and secret
-  sanitization instead of trusting every adapter to remember them.
-- **Wakeup is not delivery.** Heartbeat only performs bounded preflight and
-  asks native Cron to wake the normal Agent. The Agent judges, acts, and writes
-  fresh speech—or stays silent—using its current context.
-- **An empty inbox does not switch agency off.** A separate, throttled presence
-  cadence occasionally wakes Hermes with only `pool_state: empty`. It supplies
-  no fake task and no action menu, so the Agent can follow its current memory
-  and inclinations—or decide that doing nothing is right—without waking on all
-  96 quarter-hour ticks in a day.
-
-### Where it shines
-
-- A research or community Agent notices a new forum question, then uses its
-  existing knowledge and reply MCP only when the question merits attention.
-- A monitored mailbox or student signup site contributes compact facts without
-  turning every inbound record into an urgent interruption.
-- A personal Agent remembers a deliberately deferred continuation and returns
-  to it at a useful moment, with the causal context still attached.
-- A maintenance Agent notices a meaningful state change in standing or periodic
-  work while routine polling noise stays out of the foreground.
-- A creative or simulation-connected Agent can occasionally inspect its world
-  and choose an available native action without hard-coding that action into
-  the scheduler.
-
-### 中文速览
-
-它想给 Hermes 增加的，是一种很轻的“惦念感”：不必每件事都由人明文下令，也
-不会每来一条外部消息就立刻打断。日历、延续事项、任务变化和外部 Inbox 事实会
-被收成一小盘候选；真正醒来的仍是活的前台 Agent，它当场决定使用哪个原生工具、
-做什么、说什么，或者保持安静。QQ、mobile、飞书或未来的新入口都可以继续做它
-的嘴；新 MCP 继续做它的手。Attention 只帮它判断——**此刻，什么值得看一眼？**
-即使这一小盘暂时是空的，也不会永远关机：一个有节流的“在场机会”偶尔把判断权
-交还给活的 Agent，但不塞给它“去聊天/去玩/去工作”的动作菜单。它可以行动，也
-可以真的选择安静。
-
-## Install
+Use an isolated Python environment and a compatible Hermes already on PATH.
+To reproduce the reviewed Core installation seam, pin its full source ref:
 
 ```bash
 git clone https://github.com/Aryuan026/HermesAttentionCore.git
 cd HermesAttentionCore
+git checkout 39112759f2d43a6c228e6a0c089f2e8dda33387b
 python3 scripts/install_hermes.py --install-cron --deliver <platform>
 ```
 
-The installer pins one canonical database into both installed entrypoints. If
-the database lives outside the default Hermes home, name it explicitly on every
-install or upgrade:
+Replace angle-bracket placeholders with your platform/native values. The
+installer writes the generic runtime, three Skills and one canonical heartbeat.
+It does not enumerate, enable or disable Hermes capabilities.
 
-```bash
-python3 scripts/install_hermes.py \
-  --attention-db /absolute/private/attention.sqlite3 \
-  --install-cron --deliver <platform>
-```
-
-The installed CLI and heartbeat then use that same file even when their parent
-processes have different environments. The CLI and heartbeat refuse to invent
-a fallback database when this binding is absent.
-
-If people will reply to heartbeat messages, keep those deliveries in the
-target native conversation:
+For replies to retain the heartbeat's causal context in the native session:
 
 ```bash
 python3 scripts/install_hermes.py \
   --install-cron --deliver <platform> \
-  --attach-to-session \
-  --origin-platform <platform> \
+  --attach-to-session --origin-platform <platform> \
   --origin-chat-id <native-chat-id>
 ```
 
-Hermes mirrors each successful delivery into that foreground session, so a
-follow-up such as “what arrived?” can refer to the event and action that just
-happened. Changing QQ to mobile, Feishu, or another channel does not change the
-Attention architecture; only rebind this native Cron origin when continuity is
-wanted in the new mouth.
+Add `--origin-user-id` for a per-user-isolated group and
+`--origin-thread-id` for a topic. Rebind the origin when changing mouth;
+successful delivery is mirrored into that session without importing its raw
+transcript into Attention.
 
-The installer probes Hermes's installed native Cron read/update seam and
-verifies the persisted binding. If an upstream Hermes release moved that API,
-installation fails with a compatibility error instead of reporting a false
-success. The probe runs before the installer creates or edits the real
-heartbeat job.
+## Configuration and limits
 
-For a per-user-isolated group session, also pass the channel-native
-`--origin-user-id`; add `--origin-thread-id` when the conversation is scoped to
-a topic or thread.
+- Default Cron poll: **every 15 minutes**; a poll is not an Agent wake.
+- Empty-pool cadence: **120-minute minimum gap**, up to **3,600 seconds** of
+  stable jitter, timezone **Asia/Shanghai**, sleep-window coalescing
+  **01:00–08:00**. Populated attention bypasses that empty-pool throttle.
+- Set cadence and schedule with the installer flags shown by
+  `python3 scripts/install_hermes.py --help`; keep all values explicit on
+  upgrades if you changed the defaults.
+- If the canonical DB is outside the default Hermes home, pass
+  `--attention-db /absolute/private/attention.sqlite3` on every install/upgrade.
+  Both installed entrypoints pin the same DB; an unbound entrypoint fails
+  instead of inventing another store.
+- Inbox enforces payload/reference bounds, identity validation, sanitization,
+  idempotency, coalescing and expiry. Runtime databases, credentials, chat text,
+  logs and generated receipts stay out of Git.
 
-The installer owns only the generic runtime package and three generic Skills.
-It does not enable, disable, enumerate, or copy native capabilities. Re-running
-it removes retired files from those owned trees without deleting independent
-provider extensions.
-
-## Connect an external AI forum
-
-Read [the Inbox adapter contract](skills/attention-runtime-setup/references/external-inbox-adapters.md).
-An adapter exposes `build_poll(stores)`, maps bounded records to `AgentEvent`,
-commits through `stores.inbox.ingest()`, then ACKs upstream. Register the trusted
-module with:
+To add a forum, mailbox or other event source, implement the
+[Inbox adapter contract](skills/attention-runtime-setup/references/external-inbox-adapters.md):
+`build_poll(stores)` maps bounded facts to `AgentEvent`, commits through
+`stores.inbox.ingest()`, then ACKs upstream.
 
 ```bash
-hermes-attention adapters register \
-  --name ai-forum --module my_forum_attention
+hermes-attention adapters register --name ai-forum --module my_forum_attention
 ```
 
-If Hermes may reply to the forum, register that ability separately through
-Hermes's native MCP/tool path. The event feed itself grants no reply authority.
+Reply/action abilities must be registered separately through native Hermes
+tools or MCP. Receiving an event grants no action permission.
 
-## Verify
+## Verification
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -e .
-.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python -B -m unittest discover -s tests -v
 ```
 
-Set `HERMES_ATTENTION_TEST_HOST_ROOT=/path/to/hermes-agent` when running
-the suite in an environment with Hermes's dependencies to exercise its real
-Cron create/edit and session-binding APIs. This regression uses a disposable
-profile and never runs a job or contacts a provider. Creation uses a positional
-schedule and default Agent mode; only editing uses `--schedule` and `--agent`.
+For real Cron create/edit/session-binding tests, use an environment containing
+the exact Hermes host's dependencies and set
+`HERMES_ATTENTION_TEST_HOST_ROOT=/path/to/hermes-agent`. Without it the
+real-host case skips. The integration test uses a disposable profile and never
+runs a job or calls a provider.
 
-Python 3.9+ is supported. Runtime databases, credentials, logs, chat text, and
-receipts are excluded from Git.
+A Cron `ok` is not automatically a wake, selected focus, completed action or
+delivered message. Natural use requires separate evidence through source
+selection, native execution, canonical receipt and visible speech or silence.
+
+## Maintenance
+
+For each Hermes release, verify Cron create/edit syntax, native preflight,
+session-origin persistence, PATH and canonical DB binding. Repeat an isolated
+install/upgrade regression; update this list with exact Core/host refs and
+the proven layer. Keep provider adapters separate from capabilities and
+conversation channels. Do not equate another plugin's tests with Core support.
+
+Installation rollback is not fully automatic: a failure after Cron mutation
+can leave a job changed. Preserve the original job/DB configuration during an
+upgrade; the known hardening item is recorded in [PLAN.md](PLAN.md).
+
+## Documentation
+
+- [AI_START_HERE.md](AI_START_HERE.md): short agent entry.
+- [Architecture](skills/attention-steward/references/architecture.md):
+  owner contracts and one-to-one acceptance.
+- [Chinese architecture guide](docs/zh-architecture-guide.md) and
+  [mobile PDF](output/pdf/Hermes-Attention-Core-中文架构说明.pdf).
+- [PROGRESS.md](PROGRESS.md): dated tests and maintenance.
+- [REQUIREMENTS.md](REQUIREMENTS.md), [SCHEMA.md](SCHEMA.md) and
+  [PLAN.md](PLAN.md): behavior, storage and remaining work.
 
 ## License
 
-MIT.
+[MIT](LICENSE).
