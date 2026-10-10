@@ -252,16 +252,14 @@ def install_cron(
         text=True,
     )
     common = [
-        "--schedule", schedule,
         "--deliver", deliver,
         "--skill", "attention-steward",
         "--script", "hermes_attention_heartbeat.sh",
-        "--agent",
         "--workdir", str(workdir.expanduser().resolve()),
     ]
     if CRON_NAME not in listed.stdout:
         subprocess.run(
-            [hermes, "cron", "create", "--name", CRON_NAME, *common],
+            [hermes, "cron", "create", schedule, "--name", CRON_NAME, *common],
             env=environment,
             check=True,
         )
@@ -280,7 +278,7 @@ def install_cron(
     if not job_id:
         raise SystemExit("Could not resolve the existing heartbeat job ID")
     subprocess.run(
-        [hermes, "cron", "edit", job_id, *common],
+        [hermes, "cron", "edit", job_id, "--schedule", schedule, "--agent", *common],
         env=environment,
         check=True,
     )
