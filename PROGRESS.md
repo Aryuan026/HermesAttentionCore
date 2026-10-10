@@ -1,5 +1,17 @@
 # Progress
 
+## 2026-10-10 — Hermes 0.21.5 Cron installation
+
+- Fixed native Cron creation: schedule is positional and Agent mode is the
+  default. Only editing uses `--schedule` and `--agent`. Existing scoring,
+  source owners, empty-pool cadence, stores and wrappers are unchanged.
+- Added a real-host regression for create, native API probe/session binding,
+  legacy no-Agent upgrade, and same-ID edit preserving the exact origin.
+  It uses a disposable profile and never runs a job or contacts a provider.
+- Local Python 3.11: 60/60 including the actual Hermes 0.21.5 CLI/API test.
+  Python 3.12: 59 passed with one conditional real-host skip. No GitHub
+  Actions were used. This generic Core is not the Tencent-installed Runtime.
+
 ## 0.1.0
 
 - Published the generic owner-store runtime with Calendar, Continuation, Task,
