@@ -203,6 +203,12 @@ python3 -m venv .venv
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
+Set `HERMES_ATTENTION_TEST_HOST_ROOT=/path/to/hermes-agent` when running
+the suite in an environment with Hermes's dependencies to exercise its real
+Cron create/edit and session-binding APIs. This regression uses a disposable
+profile and never runs a job or contacts a provider. Creation uses a positional
+schedule and default Agent mode; only editing uses `--schedule` and `--agent`.
+
 Python 3.9+ is supported. Runtime databases, credentials, logs, chat text, and
 receipts are excluded from Git.
 
